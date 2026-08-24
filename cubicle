@@ -191,27 +191,12 @@ default_branch() {
     printf 'main\n'
 }
 
-# common_dir_of() {{{3
-#
-# Print the absolute common git dir of the repository containing DIR.
-# Works around git < 2.31 lacking --path-format=absolute
-# usage: common_dir_of DIR
-common_dir_of() {
-    local d
-    if d=$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null); then
-        printf '%s\n' "$d"
-        return 0
-    fi
-    (cd "$1" && abspath "$(git rev-parse --git-common-dir)")
-}
-
 # require_repo() {{{3
 #
 # Set COMMON_DIR to the common git dir. Die unless inside a git repository
 require_repo() {
-    git rev-parse --git-common-dir >/dev/null 2>&1 ||
+    COMMON_DIR=$(git rev-parse --path-format=absolute --git-common-dir) ||
         die "not inside a git repository (run from within a worktree)"
-    COMMON_DIR=$(common_dir_of .)
 }
 
 # top_of() {{{3
@@ -978,7 +963,7 @@ cmd_link() {
     top=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null) ||
         die "'$dir' is not inside a git repository"
 
-    COMMON_DIR=$(common_dir_of "$dir")
+    COMMON_DIR=$(git -C "$dir" rev-parse --path-format=absolute --git-common-dir)
     cfg=$(resolve_cfg "$top")
     install_excludes "$cfg"
     link_into "$top" "$cfg"
