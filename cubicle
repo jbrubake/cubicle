@@ -896,9 +896,10 @@ cmd_link() {
         shift
     done
 
+    require_repo
+
     # If no DIR arg, update links for all worktrees
     if [ -z "$dir" ]; then
-        require_repo
         _link_all_worktrees
         info "worktrees checked: $_LINK_TOTAL"
         if [ "$_LINK_FAILED" -gt 0 ]; then
@@ -912,10 +913,7 @@ cmd_link() {
     [ -d "$dir" ] || die "not a directory: $dir"
 
     local top cfg
-    top=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null) ||
-        die "'$dir' is not inside a git repository"
-
-    COMMON_DIR=$(git -C "$dir" rev-parse --path-format=absolute --git-common-dir)
+    top=$(top_of "$dir")
     cfg=$(resolve_cfg "$top")
     install_excludes "$cfg"
     link_into "$top" "$cfg"
