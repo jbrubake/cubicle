@@ -92,49 +92,36 @@ hdr() { printf '\n== %s ==\n' "$*"; }
 
 # Path helpers {{{2
 #
-# _normpath() {{{3
-#
-# Normalize an absolute path lexically: collapse duplicate and trailing
-# slashes, drop '.' segments and resolve '..' against preceding segments.
-# No filesystem access, no symlink resolution. Assumes PATH starts with '/'
-# usage: _normpath PATH
-_normpath() {
-    local rest out seg p q
-    rest=${1#/}
-    out=
-    while [ -n "$rest" ]; do
-        seg=${rest%%/*}
-        case $seg in
-            ''|.) ;;
-            ..)
-                p=${out%/}
-                q=${p%/*}
-                if [ "$q" = "$p" ]; then
-                    out=
-                else
-                    out=$q/
-                fi
-                ;;
-            *)  out=$out$seg/ ;;
-        esac
-        [ "$rest" = "${rest#*/}" ] && break
-        rest=${rest#*/}
-    done
-    printf '/%s\n' "${out%/}"
-}
-
 # abspath() {{{3
 #
-# Print PATH as an absolute, lexically normalized path (resolved against
-# $PWD when relative). Pure sh: no realpath/symlink resolution
+# Print PATH as an absolute, lexically normalized path (resolved against $PWD
+# when relative). Collapses duplicate and trailing slashes, drops '.' segments
+# and resolves '..' against preceding segments
 # usage: abspath PATH
 abspath() {
-    local p=$1
+    local p=$1 out='' seg q
     case $p in
         /*) ;;
         *)  p=$PWD/$p ;;
     esac
-    _normpath "$p"
+    p=${p#/}
+    while [ -n "$p" ]; do
+        seg=${p%%/*}
+        case $seg in
+            ''|.) ;;
+            ..)
+                q=${out%/}
+                case $q in
+                    */*) out=${q%/*}/ ;;
+                    *)   out= ;;
+                esac
+                ;;
+            *)  out=$out$seg/ ;;
+        esac
+        [ "$p" = "${p#*/}" ] && break
+        p=${p#*/}
+    done
+    printf '/%s\n' "${out%/}"
 }
 
 # rel_target() {{{3

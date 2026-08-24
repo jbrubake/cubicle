@@ -388,7 +388,7 @@ e2e_help_and_version_flags() {
     assert_contains "$OUT" '-V, --version'
     assert_exit 0 "$CUBICLE_BIN" -h
     capture "$CUBICLE_BIN" -V
-    assert_contains "$OUT" '0.1.0'
+    assert_contains "$OUT" '1.0.0'
     assert_exit 1 "$CUBICLE_BIN" help
     assert_exit 1 "$CUBICLE_BIN" version
     assert_exit 1 "$CUBICLE_BIN" frobnicate
