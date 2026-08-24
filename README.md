@@ -73,7 +73,6 @@ Command                                                      | Purpose
 `cubicle init [--opencode] [--claude] [--repo] DIR [BRANCH]` | same as clone but create a local repo in DIR (with BRANCH as the first worktree. Default: main)
 `cubicle worktree ['git worktree add' args] PATH`            | run `git worktree add` and update links in all worktrees
 `cubicle link [DIR]`                                         | update links to `share/` items into worktree DIR. Omit DIR to update every worktree
-`cubicle path`                                               | print the recorded config directory
 `cubicle check`                                              | check the status of links and the `cubicle` hooks
 
 Global Options:

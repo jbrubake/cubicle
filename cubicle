@@ -23,7 +23,6 @@ set -eu
 
 VERSION=1.0.0
 MARKER=CUBICLE-MANAGED-HOOK-v1
-RECORD=cubicle-config-path
 COMMON_DIR=
 TMPFILE=
 HOOKTAIL=
@@ -43,7 +42,6 @@ Usage:
   cubicle worktree [`git worktree add` options] PATH
                                 create a git worktree
   cubicle link [DIR]            update links (omit DIR for all worktrees)
-  cubicle path                  print the recorded config directory
   cubicle check                 health check
 
 Options:
@@ -204,42 +202,17 @@ require_repo() {
 # Print the toplevel directory of the worktree containing DIR
 top_of() { git -C "$1" rev-parse --show-toplevel; }
 
-# record_file() {{{3
-#
-# Print the path of the config-record file under COMMON_DIR
-record_file() { printf '%s/%s\n' "$COMMON_DIR" "$RECORD"; }
-
-# load_record() {{{3
-#
-# Print the recorded config directory (first record line). Empty output if none
-load_record() {
-    local f
-    f=$(record_file)
-    if [ -s "$f" ]; then head -n 1 "$f"; fi
-}
-
-# save_record() {{{3
-#
-# Store CFG as the project's config directory (overwrites any prior record)
-# usage: save_record CFG
-save_record() {
-    mkdir -p "$COMMON_DIR"
-    printf '%s\n' "$1" >"$(record_file)"
-}
-
 # resolve_cfg() {{{3
 #
-# Determine the config directory (record, else <BASETOP>/../share), validate and
-#     print it. Die if the directory does not exist
+# Determine the config directory: <BASETOP>/../share, where BASETOP defaults
+#     to the top of the current worktree. Die if it does not exist
 # usage: resolve_cfg [BASETOP]
 resolve_cfg() {
     local basetop=${1:-}
-    local cfg='' base
-    cfg=$(load_record)
-    if [ -z "$cfg" ]; then
-        base=${basetop:-$(top_of .)}
-        cfg=$(abspath "$(dirname "$base")/share")
-    fi
+    local base
+    base=${basetop:-$(top_of .)}
+    local cfg
+    cfg=$(abspath "$(dirname "$base")/share")
     [ -d "$cfg" ] ||
         die "config directory not found: $cfg (expected '<project>/share' beside the worktrees, or a project created by 'cubicle clone/init')"
     if [ -z "$(share_items "$cfg")" ]; then
@@ -597,21 +570,19 @@ _share_create() {
 
 # _wire() {{{3
 #
-# Wire the current worktree: save record, install hook/excludes, link items
+# Wire the current worktree: install hook/excludes, link items
 _wire() {
     require_repo
     local top cfg
     top=$(top_of .)
     cfg=$(resolve_cfg "$top")
 
-    save_record "$cfg"
     install_hook
     install_excludes "$cfg"
     link_into "$top" "$cfg" "yes"
     ok "linked current worktree ($top)"
     echo
     info "config : $cfg"
-    info "record : $(record_file)"
     info "hook   : fires on every checkout / worktree add (incl. opencode TUI)"
 }
 
@@ -698,13 +669,13 @@ cmd_clone() {
 
 # cmd_check() {{{3
 #
-# Run read-only health checks over record, hook, excludes and worktree links
+# Run read-only health checks over config, hook, excludes and worktree links
 cmd_check() {
     [ $# -eq 0 ] || die "usage: cubicle check"
     require_repo
     local ISSUES=0
     local CHECK_N=0 CHECK_EXC='' WT='' CFG=''
-    local top hook exc n wt recfile
+    local top hook exc n wt
     top=$(top_of .)
 
     TMPFILE=$(mktemp "${TMPDIR:-/tmp}/cubicle.check.XXXXXXXX") ||
@@ -716,31 +687,20 @@ cmd_check() {
     ok "common   : $COMMON_DIR"
 
     hdr "config"
-    recfile=$(record_file)
-    if [ -s "$recfile" ]; then
-        cfg=$(head -n 1 "$recfile")
-        if [ -d "$cfg" ]; then
-            ok "recorded : $cfg"
-            CHECK_N=0
-            for_each_share_item "$cfg" _check_list_item
-            if [ "$CHECK_N" -eq 0 ]; then
-                info "config has no linkable content: $cfg (empty share is valid)"
-            fi
-            while IFS= read -r wt; do
-                [ -n "$wt" ] || continue
-                if path_inside "$cfg" "$wt"; then
-                    warn "config lives INSIDE worktree $wt (should sit beside the worktrees)"
-                    ISSUES=$((ISSUES + 1))
-                fi
-            done <"$TMPFILE"
-        else
-            warn "recorded config missing on disk: $cfg"
+    cfg=$(resolve_cfg "$(top_of .)")
+    ok "config   : $cfg"
+    CHECK_N=0
+    for_each_share_item "$cfg" _check_list_item
+    if [ "$CHECK_N" -eq 0 ]; then
+        info "config has no linkable content: $cfg (empty share is valid)"
+    fi
+    while IFS= read -r wt; do
+        [ -n "$wt" ] || continue
+        if path_inside "$cfg" "$wt"; then
+            warn "config lives INSIDE worktree $wt (should sit beside the worktrees)"
             ISSUES=$((ISSUES + 1))
         fi
-    else
-        warn "no config recorded (wiring is created by 'cubicle clone'/'cubicle init')"
-        ISSUES=$((ISSUES + 1))
-    fi
+    done <"$TMPFILE"
 
     hdr "hook"
     hook=$COMMON_DIR/hooks/post-checkout
@@ -779,29 +739,21 @@ cmd_check() {
 
     hdr "excludes"
     exc=$COMMON_DIR/info/exclude
-    if [ -d "${cfg:-}" ]; then
-        CHECK_EXC=$exc
-        for_each_share_item "$cfg" _check_check_exclude
-    else
-        info "no config recorded; skipping"
-    fi
+    CHECK_EXC=$exc
+    for_each_share_item "$cfg" _check_check_exclude
 
     hdr "worktrees"
-    if [ -d "${cfg:-}" ]; then
-        CFG=$cfg
-        n=0
-        while IFS= read -r wt; do
-            [ -n "$wt" ] || continue
-            n=$((n + 1))
-            WT=$wt
-            for_each_share_item "$cfg" _check_check_link
-            _check_orphans
-        done <"$TMPFILE"
-        if [ "$n" -eq 0 ]; then
-            info "none found"
-        fi
-    else
-        info "no config recorded; skipping"
+    CFG=$cfg
+    n=0
+    while IFS= read -r wt; do
+        [ -n "$wt" ] || continue
+        n=$((n + 1))
+        WT=$wt
+        for_each_share_item "$cfg" _check_check_link
+        _check_orphans
+    done <"$TMPFILE"
+    if [ "$n" -eq 0 ]; then
+        info "none found"
     fi
     rm -f "$TMPFILE"
     TMPFILE=
@@ -969,22 +921,6 @@ cmd_link() {
     link_into "$top" "$cfg"
 }
 
-# cmd_path() {{{3
-#
-# Print the recorded config directory (exit 1 when nothing is recorded)
-cmd_path() {
-    [ $# -eq 0 ] || die "usage: cubicle path"
-    require_repo
-    local f
-    f=$(record_file)
-    if [ -s "$f" ]; then
-        head -n 1 "$f"
-    else
-        warn "no config recorded (wiring is created by 'cubicle clone'/'cubicle init')"
-        exit 1
-    fi
-}
-
 # cmd_worktree() {{{3
 #
 # Wrap 'git worktree add', then ensure every worktree is linked
@@ -1064,7 +1000,6 @@ case $cmd in
     check)    cmd_check "$@" ;;
     init)     cmd_init "$@" ;;
     link)     cmd_link "$@" ;;
-    path)     cmd_path "$@" ;;
     worktree) cmd_worktree "$@" ;;
     *)
         warn "Unknown command: $cmd"

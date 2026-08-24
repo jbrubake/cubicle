@@ -93,10 +93,6 @@ With no
 .IR dir ,
 update every worktree of the project.
 .TP
-.B path
-Print the recorded config directory. Nothing is printed and the command fails if
-nothing is recorded.
-.TP
 .B check
 Check the status of links and hooks.
 .SH LINKING RULES
@@ -110,9 +106,6 @@ and files remain. Links pointing elsewhere are left alone and reported.
 additionally reports stale managed links whose config item was removed
 from the config repository.
 .SH FILES
-.TP
-.I <common-git-dir>/cubicle-config-path
-The absolute path of the config directory.
 .TP
 .I <common-git-dir>/hooks/post-checkout
 The block required by

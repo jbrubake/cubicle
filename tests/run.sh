@@ -221,7 +221,6 @@ e2e_init_layout() {
     done
     assert_symlink_to "$proj/trunk/AGENTS.md" ../share/AGENTS.md
     assert_symlink_to "$proj/trunk/.opencode" ../share/.opencode
-    assert_eq "$(cat "$proj/.bare/cubicle-config-path")" "$proj/share"
 }
 
 e2e_gitdir_pointer_newline() {
@@ -335,13 +334,12 @@ e2e_dangling_repair() {
     assert_rc0 "$CUBICLE_BIN" check
 }
 
-e2e_check_no_record() {
+e2e_check_unwired_repo() {
     sb=$(make_sandbox)
     git init -q "$sb/plain"
     cd "$sb/plain" || return 1
     assert_exit 1 "$CUBICLE_BIN" check
-    assert_contains "$ERR" 'no config recorded'
-    assert_contains "$ERR" skipping
+    assert_contains "$ERR" 'config directory not found'
 }
 
 e2e_spaces_in_names() {
@@ -368,14 +366,6 @@ e2e_clone_flow() {
         assert_file "$sb/cloned/$d" || return 1
     done
     assert_symlink_to "$sb/cloned/devel/AGENTS.md" ../share/AGENTS.md
-    assert_eq "$(cat "$sb/cloned/.bare/cubicle-config-path")" "$sb/cloned/share"
-}
-
-e2e_path_cmd() {
-    proj=$(make_project "$(make_sandbox)/proj" trunk) || return 1
-    cd "$proj/trunk" || return 1
-    capture "$CUBICLE_BIN" path
-    assert_eq "$OUT" "$proj/share"
 }
 
 e2e_help_and_version_flags() {
@@ -396,8 +386,6 @@ e2e_help_and_version_flags() {
     # zero-argument commands reject stray arguments
     assert_exit 1 "$CUBICLE_BIN" check unexpected-arg
     assert_contains "$ERR" 'usage: cubicle check'
-    assert_exit 1 "$CUBICLE_BIN" path unexpected-arg
-    assert_contains "$ERR" 'usage: cubicle path'
     # global options compose in any order among themselves
     assert_exit 0 "$CUBICLE_BIN" -q -h
     assert_exit 0 "$CUBICLE_BIN" -h -q
@@ -577,13 +565,12 @@ reg_excludes_only_once() {
     assert_eq "$n" 1 "/AGENTS.md must appear exactly once"
 }
 
-reg_record_survives_link_from_subdir() {
+reg_link_works_from_nested_subdir() {
     proj=$(make_project "$(make_sandbox)/proj" trunk) || return 1
     mkdir -p "$proj/trunk/deep/dir"
     cd "$proj/trunk/deep/dir" || return 1
     capture "$CUBICLE_BIN" link .
     assert_eq "$RC" 0
-    assert_eq "$(cat "$proj/.bare/cubicle-config-path")" "$proj/share"
 }
 
 reg_sentinel_loads_without_dispatch() {
@@ -621,10 +608,9 @@ t 'e2e: quiet flag silences output'     e2e_quiet_is_quiet
 t 'e2e: realfile never overwritten'     e2e_realfile_never_overwritten
 t 'e2e: foreign symlink untouched'      e2e_other_symlink_untouched
 t 'e2e: dangling detect + repair'       e2e_dangling_repair
-t 'e2e: check without record fails'    e2e_check_no_record
+t 'e2e: check on unwired repo fails'   e2e_check_unwired_repo
 t 'e2e: spaces in share names'          e2e_spaces_in_names
 t 'e2e: clone flow'                     e2e_clone_flow
-t 'e2e: path command'                   e2e_path_cmd
 t 'e2e: help/version flags'             e2e_help_and_version_flags
 t 'e2e: init empty share valid'         e2e_init_empty_share
 t 'e2e: claude stub bundle'             e2e_claude_stubs
@@ -640,7 +626,7 @@ t 'e2e: share --repo option'            e2e_share_repo_option
 t 'reg: link from sibling worktree'     reg_link_from_sibling_worktree
 t 'reg: hook update keeps foreign tail' reg_hook_update_preserves_foreign_tail
 t 'reg: excludes written once'          reg_excludes_only_once
-t 'reg: record from nested subdir'      reg_record_survives_link_from_subdir
+t 'reg: link works from nested subdir'  reg_link_works_from_nested_subdir
 t 'reg: __SOURCED__ loads w/o dispatch' reg_sentinel_loads_without_dispatch
 
 if ! summary; then
