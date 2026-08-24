@@ -1,0 +1,1102 @@
+#!/bin/sh
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <http://www.gnu.org/licenses/>.
+#
+# Copyright 2026 Jeremy Brubaker <jbru362@gmail.com>
+#
+# abstract: link shared agent config into git worktrees
+#
+# shellcheck shell=dash # required because of use of 'local'
+#
+set -eu
+
+VERSION=1.0.0
+MARKER=CUBICLE-MANAGED-HOOK-v1
+RECORD=cubicle-config-path
+COMMON_DIR=
+TMPFILE=
+HOOKTAIL=
+QUIET=no
+
+# Documentation {{{1
+#
+print_help() {
+    cat <<'EOF'
+cubicle: link shared agent config into git worktrees
+
+Usage:
+  cubicle clone [--opencode] [--claude] [--repo] URL [DIR]
+                                create a project using `git clone`
+  cubicle init [--opencode] [--claude] [--repo] DIR [BRANCH]
+                                create a project using `git init`
+  cubicle worktree [`git worktree add` options] PATH
+                                create a git worktree
+  cubicle link [DIR]            update links (omit DIR for all worktrees)
+  cubicle path                  print the recorded config directory
+  cubicle check                 health check
+
+Options:
+  -q, --quiet                suppress non-warning output
+  -h, --help                 print help
+  -V, --version              print version
+
+Layout:
+  project/
+  +-- share/        top-level contents of this directory linked into every worktree
+  +-- <branch>/     initial worktree (name = default branch)
+  +-- worktree-*/   each worktree contains links to top-level contents of share/
+EOF
+}
+
+print_version() {
+    cat <<EOF
+$0 $VERSION
+Copyright (C) 2026 Jeremy Brubaker
+License GPLv3+: GNU GPL version 3 or later <https://gnu.org/licenses/gpl.html>.
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+
+Written by Jeremy Brubaker.
+EOF
+}
+
+# Functions {{{1
+#
+# Printing functions {{{2
+#
+# Print messages to stderr. die() exits with an error
+#
+# usage: die|warn|info|ok MESSAGE
+#
+# If QUIET == yes, ok and info are no-ops
+#
+die()  {                       printf '[err]  %s\n' "$*"; exit 1; } >&2
+warn() {                       printf '[warn] %s\n' "$*" >&2; }
+info() { [ "$QUIET" = yes ] || printf '[..]   %s\n' "$*" >&2; }
+ok()   { [ "$QUIET" = yes ] || printf '[ok]   %s\n' "$*" >&2; }
+
+# Print a section header line
+# usage: hdr TITLE...
+hdr() { printf '\n== %s ==\n' "$*"; }
+
+# Path helpers {{{2
+#
+# _normpath() {{{3
+#
+# Normalize an absolute path lexically: collapse duplicate and trailing
+# slashes, drop '.' segments and resolve '..' against preceding segments.
+# No filesystem access, no symlink resolution. Assumes PATH starts with '/'
+# usage: _normpath PATH
+_normpath() {
+    local rest out seg p q
+    rest=${1#/}
+    out=
+    while [ -n "$rest" ]; do
+        seg=${rest%%/*}
+        case $seg in
+            ''|.) ;;
+            ..)
+                p=${out%/}
+                q=${p%/*}
+                if [ "$q" = "$p" ]; then
+                    out=
+                else
+                    out=$q/
+                fi
+                ;;
+            *)  out=$out$seg/ ;;
+        esac
+        [ "$rest" = "${rest#*/}" ] && break
+        rest=${rest#*/}
+    done
+    printf '/%s\n' "${out%/}"
+}
+
+# abspath() {{{3
+#
+# Print PATH as an absolute, lexically normalized path (resolved against
+# $PWD when relative). Pure sh: no realpath/symlink resolution
+# usage: abspath PATH
+abspath() {
+    local p=$1
+    case $p in
+        /*) ;;
+        *)  p=$PWD/$p ;;
+    esac
+    _normpath "$p"
+}
+
+# rel_target() {{{3
+#
+# Print TARGET as a path relative to BASE (both lexically normalized via
+# abspath). Pure sh; no realpath dependency
+# usage: rel_target BASE TARGET
+rel_target() {
+    local base item seg up=
+    base=$(abspath "$1")
+    item=$(abspath "$2")
+    if [ "$base" = "$item" ]; then
+        printf '.\n'
+        return 0
+    fi
+    base=${base#/}
+    item=${item#/}
+    while [ -n "$base" ]; do
+        if [ "$base" = "${base#*/}" ]; then
+            seg=$base
+            base=
+        else
+            seg=${base%%/*}
+            base=${base#*/}
+        fi
+        case $item in
+            "$seg")   item= ;;
+            "$seg"/*) item=${item#*/} ;;
+            *)        up=../$up ;;
+        esac
+    done
+    if [ -n "$up" ] && [ -z "$item" ]; then
+        printf '%s\n' "${up%/}"
+    else
+        printf '%s\n' "$up$item"
+    fi
+}
+
+# path_inside() {{{3
+#
+# Succeed if CANDIDATE is equal to or located inside DIR. Both paths are
+# lexically normalized first, so '..' segments cannot fake containment
+# usage: path_inside CANDIDATE DIR
+path_inside() {
+    local a b
+    a=$(abspath "$1")
+    b=$(abspath "$2")
+    [ "$a" = "$b" ] && return 0
+    case "$a/" in
+        "$b"/*) return 0 ;;
+    esac
+    return 1
+}
+
+# Repo helpers {{{2
+#
+# default_branch() {{{3
+#
+# Print the branch to use when none was requested explicitly:
+#   1. remote default   (clone resolves this itself before falling back here)
+#   2. local default    git config init.defaultBranch
+#   3. final fallback   main
+default_branch() {
+    local b
+    b=$(git config --get init.defaultBranch 2>/dev/null) &&
+        [ -n "$b" ] && { printf '%s\n' "$b"; return 0; }
+    printf 'main\n'
+}
+
+# common_dir_of() {{{3
+#
+# Print the absolute common git dir of the repository containing DIR.
+# Works around git < 2.31 lacking --path-format=absolute
+# usage: common_dir_of DIR
+common_dir_of() {
+    local d
+    if d=$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null); then
+        printf '%s\n' "$d"
+        return 0
+    fi
+    (cd "$1" && abspath "$(git rev-parse --git-common-dir)")
+}
+
+# require_repo() {{{3
+#
+# Set COMMON_DIR to the common git dir. Die unless inside a git repository
+require_repo() {
+    git rev-parse --git-common-dir >/dev/null 2>&1 ||
+        die "not inside a git repository (run from within a worktree)"
+    COMMON_DIR=$(common_dir_of .)
+}
+
+# top_of() {{{3
+#
+# Print the toplevel directory of the worktree containing DIR
+top_of() { git -C "$1" rev-parse --show-toplevel; }
+
+# record_file() {{{3
+#
+# Print the path of the config-record file under COMMON_DIR
+record_file() { printf '%s/%s\n' "$COMMON_DIR" "$RECORD"; }
+
+# load_record() {{{3
+#
+# Print the recorded config directory (first record line). Empty output if none
+load_record() {
+    local f
+    f=$(record_file)
+    if [ -s "$f" ]; then head -n 1 "$f"; fi
+}
+
+# save_record() {{{3
+#
+# Store CFG as the project's config directory (overwrites any prior record)
+# usage: save_record CFG
+save_record() {
+    mkdir -p "$COMMON_DIR"
+    printf '%s\n' "$1" >"$(record_file)"
+}
+
+# resolve_cfg() {{{3
+#
+# Determine the config directory (record, else <BASETOP>/../share), validate and
+#     print it. Die if the directory does not exist
+# usage: resolve_cfg [BASETOP]
+resolve_cfg() {
+    local basetop=${1:-}
+    local cfg='' base
+    cfg=$(load_record)
+    if [ -z "$cfg" ]; then
+        base=${basetop:-$(top_of .)}
+        cfg=$(abspath "$(dirname "$base")/share")
+    fi
+    [ -d "$cfg" ] ||
+        die "config directory not found: $cfg (expected '<project>/share' beside the worktrees, or a project created by 'cubicle clone/init')"
+    if [ -z "$(share_items "$cfg")" ]; then
+        warn "config dir has no linkable content yet: $cfg"
+    fi
+    printf '%s\n' "$cfg"
+}
+
+# Item iteration {{{2
+#
+# share_items() {{{3
+#
+# Print the top-level items of CFG to link into worktrees, one per line.
+# Informational/display use only: output is subject to word splitting.
+# For behavior, use for_each_share_item instead. Skips git metadata (any
+# name starting with ".git") but keeps other hidden files
+# usage: share_items CFG
+share_items() {
+    local entry base
+    for entry in "$1"/* "$1"/.[!.]* "$1"/..?*; do
+        [ -e "$entry" ] || [ -L "$entry" ] || continue
+        base=${entry##*/}
+        case $base in .git*) continue ;; esac
+        printf '%s\n' "$base"
+    done
+}
+
+# for_each_share_item() {{{3
+#
+# Invoke FUNC NAME [ARGS...] for every top-level item NAME of CFG that
+# would be linked into worktrees. Whitespace-safe: names are expanded as
+# single words and never re-split, so items containing spaces or newlines
+# work. Skips git metadata (any name starting with ".git") but keeps other
+# hidden files. Aggregates callback failures: returns non-zero if any
+# invocation fails
+# usage: for_each_share_item CFG FUNC [ARGS...]
+for_each_share_item() {
+    local cfg=$1 func=$2 entry base rc=0
+    shift 2
+    for entry in "$cfg"/* "$cfg"/.[!.]* "$cfg"/..?*; do
+        [ -e "$entry" ] || [ -L "$entry" ] || continue
+        base=${entry##*/}
+        case $base in .git*) continue ;; esac
+        if ! "$func" "$base" "$@"; then
+            rc=1
+        fi
+    done
+    return $rc
+}
+
+# classify() {{{3
+#
+# Print the link state of config item NAME in worktree WT for config CFG
+#     output: linked|other|realfile|dangling|missing|nocfg
+# usage: classify NAME WT CFG
+classify() {
+    local name=$1 wt=$2 cfg=$3
+    local path="$wt/$name" item="$cfg/$name"
+    if [ ! -e "$item" ]; then
+        printf 'nocfg\n'
+        return
+    fi
+    if [ -L "$path" ]; then
+        if [ -e "$path" ]; then
+            local cur des
+            cur=$(readlink "$path")
+            des=$(rel_target "$wt" "$item")
+            if [ "$cur" = "$des" ]; then printf 'linked\n'; else printf 'other\n'; fi
+        else
+            printf 'dangling\n'
+        fi
+    elif [ -e "$path" ]; then
+        printf 'realfile\n'
+    else
+        printf 'missing\n'
+    fi
+}
+
+# link_item() {{{3
+#
+# Idempotently link config item NAME into worktree WT, reporting by state
+# usage: link_item NAME WT CFG
+link_item() {
+    local name=$1 wt=$2 cfg=$3
+    local path="$wt/$name" item="$cfg/$name" state des cur
+    if [ ! -e "$item" ]; then
+        warn "no $name in $cfg (nothing to link)"
+        return 0
+    fi
+    state=$(classify "$name" "$wt" "$cfg")
+    case "$state" in
+        linked)
+            ok "$name: already linked"
+            return 0
+            ;;
+        other)
+            cur=$(readlink "$path")
+            info "$name: symlink points elsewhere ($cur); left untouched"
+            return 0
+            ;;
+        realfile)
+            warn "$name: real file present, skipped (cubicle never overwrites)"
+            return 0
+            ;;
+        dangling)
+            des=$(rel_target "$wt" "$item")
+            rm -f "$path" || return 1
+            ln -s "$des" "$path" || {
+                warn "failed to relink $name in $wt"
+                return 1
+            }
+            ok "$name -> $des (repaired dangling link)"
+            ;;
+        missing)
+            des=$(rel_target "$wt" "$item")
+            ln -s "$des" "$path" || {
+                warn "failed to link $name in $wt"
+                return 1
+            }
+            ok "$name -> $des"
+            ;;
+    esac
+    return 0
+}
+
+# link_into() {{{3
+#
+# Link every top-level item from CFG into worktree WT. Refuse if WT lies
+# inside CFG. Returns non-zero if any link operation failed
+# usage: link_into WT CFG
+link_into() {
+    local wt=$1 cfg=$2
+    if path_inside "$wt" "$cfg"; then
+        die "refusing: worktree '$wt' is inside the config repo '$cfg'"
+    fi
+    local rc=0
+    for_each_share_item "$cfg" link_item "$wt" "$cfg" || rc=$?
+    return $rc
+}
+
+# worktree_paths() {{{3
+#
+# Print the path of every non-bare worktree of the current repository
+worktree_paths() {
+    git worktree list --porcelain | awk '
+        /^worktree / { wt = substr($0, 10); bare = 0; next }
+        /^bare$/     { bare = 1; next }
+        /^$/         { if (wt != "" && !bare) print wt; wt = ""; bare = 0; next }
+        END          { if (wt != "" && !bare) print wt }
+    '
+}
+
+# save_worktrees() {{{3
+#
+# Write worktree_paths output to FILE
+# usage: save_worktrees FILE
+save_worktrees() {
+    worktree_paths >"$1"
+}
+
+# Wiring {{{2
+#
+# _write_hook_block() {{{3
+#
+# Print the managed post-checkout hook block. The block ends with an
+# 'exit 0' line; anything appended after it by the user is preserved on
+# updates
+# usage: _write_hook_block
+_write_hook_block() {
+    cat <<EOF
+#!/bin/sh
+# $MARKER (created by cubicle)
+command -v cubicle >/dev/null 2>&1 || exit 0
+cubicle -q link >/dev/null 2>&1 || :
+exit 0
+EOF
+}
+
+# install_hook() {{{3
+#
+# Create or update the common post-checkout hook so it invokes cubicle on every
+# checkout. Preserves any foreign hook content: when the hook is already owned
+# by cubicle (marker present), only the managed block is refreshed; lines
+# appended after the block's 'exit 0' survive untouched
+install_hook() {
+    local hooks=$COMMON_DIR/hooks
+    local hook=$hooks/post-checkout
+    mkdir -p "$hooks"
+    if [ ! -e "$hook" ]; then
+        _write_hook_block >"$hook"
+        chmod +x "$hook"
+        ok "post-checkout hook created ($hook)"
+    elif grep -q "$MARKER" "$hook" 2>/dev/null; then
+        # Owned by cubicle: refresh only the managed block, keep the user's tail
+        HOOKTAIL=$(mktemp "${TMPDIR:-/tmp}/cubicle.hook.XXXXXXXX") ||
+            die "failed to create temporary file"
+        awk 'p { print } /^exit 0$/ && !p { p = 1 }' "$hook" >"$HOOKTAIL"
+        {
+            _write_hook_block
+            cat "$HOOKTAIL"
+        } >"$hook.new"
+        mv "$hook.new" "$hook"
+        rm -f "$HOOKTAIL"
+        HOOKTAIL=
+        chmod +x "$hook"
+        ok "post-checkout hook updated ($hook)"
+    elif grep -q ">>> cubicle >>>" "$hook" 2>/dev/null; then
+        ok "post-checkout hook already calls cubicle ($hook)"
+    else
+        cat >>"$hook" <<'EOF'
+
+# >>> cubicle >>> (appended by cubicle; this block is managed, rest is yours)
+if command -v cubicle >/dev/null 2>&1; then
+    cubicle -q link >/dev/null 2>&1 || :
+elif [ -x "$HOME/script/cubicle" ]; then
+    "$HOME/script/cubicle" -q link >/dev/null 2>&1 || :
+fi
+# <<< cubicle <<<
+EOF
+        ok "cubicle block appended to existing post-checkout hook ($hook)"
+        warn "your hook content was kept untouched; cubicle manages only its appended block"
+    fi
+    [ -x "$hook" ] || chmod +x "$hook"
+}
+
+# _add_exclude() {{{3
+#
+# Append the anchored ignore rule for NAME to exclude FILE unless present
+# usage: _add_exclude NAME FILE
+_add_exclude() {
+    local pat="/$1"
+    grep -qxF "$pat" "$2" 2>/dev/null || printf '%s\n' "$pat" >>"$2"
+}
+
+# install_excludes() {{{3
+#
+# Add an anchored exclude entry for every share item to the common
+# info/exclude ignore file
+# usage: install_excludes CFG
+install_excludes() {
+    local cfg=$1 exc=$COMMON_DIR/info/exclude
+    mkdir -p "$COMMON_DIR/info"
+    touch "$exc"
+    for_each_share_item "$cfg" _add_exclude "$exc"
+    ok "ignore rules ensured ($exc)"
+}
+
+# Stub generators {{{2
+#
+# _stub_agents_md() {{{3
+#
+# Each writes one config artifact into DIR. Called only when the matching
+# option was requested; share/ is freshly created, so no existence checks.
+_stub_agents_md() { # DIR
+    cat >"$1/AGENTS.md" <<'EOF'
+# AGENTS.md
+
+Guidance for AI coding agents working in this repository.
+Keep this file current as project conventions evolve.
+
+## Overview
+
+<!-- What this project does, key entry points -->
+
+## Commands
+
+<!-- Build / test / lint commands agents should run, e.g.: make test -->
+
+## Conventions
+
+<!-- Style, structure, and workflow rules agents must follow -->
+EOF
+    ok "template created: $1/AGENTS.md"
+}
+
+# _stub_opencode() {{{3
+#
+_stub_opencode() { # DIR
+    mkdir -p "$1/.opencode"
+    cat >"$1/.opencode/opencode.json" <<'EOF'
+{
+  "$schema": "https://opencode.ai/config.json"
+}
+EOF
+    ok "stub created: $1/.opencode/opencode.json"
+}
+
+# _stub_claude_md() {{{3
+#
+_stub_claude_md() { # DIR
+    cat >"$1/CLAUDE.md" <<'EOF'
+# CLAUDE.md
+
+Guidance for Claude Code working in this repository.
+Keep this file current as project conventions evolve.
+
+## Overview
+
+<!-- What this project does, key entry points -->
+
+## Commands
+
+<!-- Build / test / lint commands Claude should run, e.g.: make test -->
+
+## Conventions
+
+<!-- Style, structure, and workflow rules Claude must follow -->
+EOF
+    ok "template created: $1/CLAUDE.md"
+}
+
+# _stub_claude_settings() {{{3
+#
+_stub_claude_settings() { # DIR
+    mkdir -p "$1/.claude"
+    printf '{}\n' >"$1/.claude/settings.json"
+    ok "stub created: $1/.claude/settings.json"
+}
+
+# _share_create() {{{3
+#
+# Create the standalone share/ config directory. Files are created only for
+# the bundles requested via AGENTS/CLAUDE (yes|no); a git repository inside
+# share/ exists only when REPO=yes, and cubicle NEVER creates commits there
+# usage: _share_create DIR AGENTS CLAUDE REPO
+_share_create() {
+    [ $# -eq 4 ] || die "internal error: _share_create takes exactly four arguments"
+    local dir=$1 agents=$2 claude=$3 repo=$4
+    dir=$(abspath "$dir")
+    if [ -e "$dir" ] && [ -n "$(ls -A "$dir" 2>/dev/null)" ]; then
+        die "'$dir' already exists and is not empty"
+    fi
+    local parent ptop=
+    parent=$(dirname "$dir")
+    ptop=$(git -C "$parent" rev-parse --show-toplevel 2>/dev/null || true)
+    mkdir -p "$dir"
+    if [ -n "$ptop" ] && path_inside "$dir" "$ptop"; then
+        warn "'$dir' was created INSIDE repo $ptop"
+        warn "the project VCS will see it; keep share/ beside the worktrees instead"
+    fi
+    if [ "$repo" = yes ]; then
+        git -c "init.defaultBranch=$(default_branch)" -C "$dir" init -q
+        info "repository created in $dir (no commits; history is yours)"
+    fi
+    if [ "$agents" = yes ]; then
+        _stub_agents_md "$dir"
+        _stub_opencode "$dir"
+    fi
+    if [ "$claude" = yes ]; then
+        _stub_claude_md "$dir"
+        _stub_claude_settings "$dir"
+    fi
+    ok "config directory ready: $dir"
+}
+
+# _wire() {{{3
+#
+# Wire the current worktree: save record, install hook/excludes, link items
+_wire() {
+    require_repo
+    local top cfg
+    top=$(top_of .)
+    cfg=$(resolve_cfg "$top")
+
+    save_record "$cfg"
+    install_hook
+    install_excludes "$cfg"
+    link_into "$top" "$cfg" "yes"
+    ok "linked current worktree ($top)"
+    echo
+    info "config : $cfg"
+    info "record : $(record_file)"
+    info "hook   : fires on every checkout / worktree add (incl. opencode TUI)"
+}
+
+# _finish_project() {{{3
+#
+# Finish project bootstrap: share/, wiring and summary messages
+# usage: _finish_project DIR BRANCH AGENTS CLAUDE REPO
+_finish_project() {
+    local dir=$1 branch=$2 agents=$3 claude=$4 repo=$5
+    _share_create "$dir/share" "$agents" "$claude" "$repo"
+    (cd "$dir/$branch" && _wire)
+    ok   "project ready: $dir"
+    info "layout : .bare/ + share/ + $branch/"
+    info "next   : put files in $dir/share/, they appear in every worktree"
+    info "then   : \$ cubicle link # to create the symlinks"
+    info "daily  : cd $dir/$branch && cubicle worktree ../feature -b feature"
+}
+
+# Commands {{{2
+#
+# cmd_clone() {{{3
+#
+# Bootstrap a project from a remote: bare clone, first worktree, share/, wiring
+# usage: cmd_clone URL [DIR]
+#     DIR defaults to URL basename without .git
+cmd_clone() {
+    # Options shared with init: --opencode / --claude seed stub bundles into
+    # share/. Parsing is getopt-style: options precede positionals, `--`
+    # forces the end of options.
+    local agents=no claude=no repo=no
+    while [ $# -gt 0 ]; do
+        case $1 in
+            --opencode) agents=yes ;;
+            --claude) claude=yes ;;
+            --repo) repo=yes ;;
+            --) shift; break ;;
+            -*) die "usage: cubicle clone [--opencode] [--claude] [--repo] <url> [dir]" ;;
+            *) break ;;
+        esac
+        shift
+    done
+
+    [ $# -ge 1 ] && [ $# -le 2 ] ||
+        die "usage: cubicle clone [--opencode] [--claude] [--repo] <url> [dir]"
+    for arg do
+        case $arg in -*) die "usage: cubicle clone [--opencode] [--claude] [--repo] <url> [dir]" ;; esac
+    done
+
+    local url=$1
+    local dir=${2:-}
+
+    if [ -z "$dir" ]; then
+        dir=${url%/}
+        dir=${dir##*/}
+        dir=${dir%.git}
+        [ -n "$dir" ] ||
+            die "cannot derive a directory name from '$url'. Pass one explicitly"
+    fi
+
+    dir=$(abspath "$dir")
+    if [ -e "$dir" ] && [ -n "$(ls -A "$dir" 2>/dev/null)" ]; then
+        die "'$dir' already exists and is not empty"
+    fi
+    mkdir -p "$dir"
+
+    info "cloning (bare): $url -> $dir/.bare"
+    git clone --bare "$url" "$dir/.bare"
+    printf 'gitdir: ./.bare\n' >"$dir/.git"
+
+    git -C "$dir/.bare" config remote.origin.fetch "+refs/heads/*:refs/heads/*"
+
+    local branch
+    branch=$(git -C "$dir/.bare" symbolic-ref --short HEAD 2>/dev/null || true)
+    if [ -z "$branch" ]; then
+        branch=$(git -C "$dir/.bare" for-each-ref --format='%(refname:short)' refs/heads 2>/dev/null | head -n 1)
+    fi
+    [ -n "$branch" ] || branch=$(default_branch)
+
+    info "creating first worktree: $dir/$branch (branch '$branch')"
+    git -C "$dir/.bare" worktree add "$dir/$branch" "$branch"
+
+    _finish_project "$dir" "$branch" "$agents" "$claude" "$repo"
+}
+
+# cmd_check() {{{3
+#
+# Run read-only health checks over record, hook, excludes and worktree links
+cmd_check() {
+    [ $# -eq 0 ] || die "usage: cubicle check"
+    require_repo
+    local ISSUES=0
+    local CHECK_N=0 CHECK_EXC='' WT='' CFG=''
+    local top hook exc n wt recfile
+    top=$(top_of .)
+
+    TMPFILE=$(mktemp "${TMPDIR:-/tmp}/cubicle.check.XXXXXXXX") ||
+        die "failed to create temporary file"
+    save_worktrees "$TMPFILE"
+
+    hdr "repo"
+    ok "worktree : $top"
+    ok "common   : $COMMON_DIR"
+
+    hdr "config"
+    recfile=$(record_file)
+    if [ -s "$recfile" ]; then
+        cfg=$(head -n 1 "$recfile")
+        if [ -d "$cfg" ]; then
+            ok "recorded : $cfg"
+            CHECK_N=0
+            for_each_share_item "$cfg" _check_list_item
+            if [ "$CHECK_N" -eq 0 ]; then
+                info "config has no linkable content: $cfg (empty share is valid)"
+            fi
+            while IFS= read -r wt; do
+                [ -n "$wt" ] || continue
+                if path_inside "$cfg" "$wt"; then
+                    warn "config lives INSIDE worktree $wt (should sit beside the worktrees)"
+                    ISSUES=$((ISSUES + 1))
+                fi
+            done <"$TMPFILE"
+        else
+            warn "recorded config missing on disk: $cfg"
+            ISSUES=$((ISSUES + 1))
+        fi
+    else
+        warn "no config recorded (wiring is created by 'cubicle clone'/'cubicle init')"
+        ISSUES=$((ISSUES + 1))
+    fi
+
+    hdr "hook"
+    hook=$COMMON_DIR/hooks/post-checkout
+    if [ -e "$hook" ]; then
+        if grep -q "$MARKER" "$hook" 2>/dev/null; then
+            ok "owned by cubicle: $hook"
+            if [ -x "$hook" ]; then
+                ok "executable: yes"
+            else
+                warn "not executable: chmod +x '$hook'"
+                ISSUES=$((ISSUES + 1))
+            fi
+            if command -v cubicle >/dev/null 2>&1; then
+                ok "cubicle on PATH"
+            else
+                warn "cubicle not on PATH -- hook cannot work"
+                ISSUES=$((ISSUES + 1))
+            fi
+        elif grep -q ">>> cubicle >>>" "$hook" 2>/dev/null; then
+            ok "calls cubicle via appended block (foreign hook content preserved)"
+            if command -v cubicle >/dev/null 2>&1 || [ -x "${HOME}/script/cubicle" ]; then
+                ok "cubicle reachable from hook"
+            else
+                warn "cubicle not on PATH and ~/script/cubicle missing — hook block cannot work"
+                ISSUES=$((ISSUES + 1))
+            fi
+        else
+            warn "foreign post-checkout hook without any cubicle integration: $hook"
+            warn "(wiring comes from 'cubicle clone'/'cubicle init'; append an cubicle call manually if needed)"
+            ISSUES=$((ISSUES + 1))
+        fi
+    else
+        warn "no post-checkout hook (normally created by 'cubicle clone'/'cubicle init')"
+        ISSUES=$((ISSUES + 1))
+    fi
+
+    hdr "excludes"
+    exc=$COMMON_DIR/info/exclude
+    if [ -d "${cfg:-}" ]; then
+        CHECK_EXC=$exc
+        for_each_share_item "$cfg" _check_check_exclude
+    else
+        info "no config recorded; skipping"
+    fi
+
+    hdr "worktrees"
+    if [ -d "${cfg:-}" ]; then
+        CFG=$cfg
+        n=0
+        while IFS= read -r wt; do
+            [ -n "$wt" ] || continue
+            n=$((n + 1))
+            WT=$wt
+            for_each_share_item "$cfg" _check_check_link
+            _check_orphans
+        done <"$TMPFILE"
+        if [ "$n" -eq 0 ]; then
+            info "none found"
+        fi
+    else
+        info "no config recorded; skipping"
+    fi
+    rm -f "$TMPFILE"
+    TMPFILE=
+
+    hdr "result"
+    if [ "$ISSUES" -eq 0 ]; then
+        ok "no issues found"
+    else
+        warn "$ISSUES issue(s) found"
+        exit 1
+    fi
+}
+
+# _check_list_item() {{{4
+#
+_check_list_item() {
+    ok "has      : $1"
+    CHECK_N=$((CHECK_N + 1))
+}
+
+# _check_check_exclude() {{{4
+#
+_check_check_exclude() {
+    local pat="/$1"
+    if grep -qxF "$pat" "$CHECK_EXC" 2>/dev/null; then
+        ok "ignored  : $pat"
+    else
+        warn "not excluded: $pat (append it to $CHECK_EXC)"
+        ISSUES=$((ISSUES + 1))
+    fi
+}
+
+# _check_check_link() {{{4
+#
+_check_check_link() {
+    local state
+    state=$(classify "$1" "$WT" "$CFG")
+    case "$state" in
+        linked|nocfg) ;;
+        realfile) info "note     : $WT real $1 (skipped by design)" ;;
+        dangling) warn "DANGLING : $WT/$1"; ISSUES=$((ISSUES + 1)) ;;
+        other)    info "note     : $WT/$1 points elsewhere ($(readlink "$WT/$1"))" ;;
+        missing)  warn "UNLINKED : $WT/$1 (run 'cubicle link')"; ISSUES=$((ISSUES + 1)) ;;
+    esac
+}
+
+# _check_orphans() {{{4
+#
+# Flag dangling symlinks at the worktree root whose target matches what
+# cubicle writes for CFG/NAME: managed links whose config item has since been
+# removed from the config repo. Uses WT/CFG globals set by the caller
+_check_orphans() {
+    local entry name want
+    for entry in "$WT"/* "$WT"/.[!.]* "$WT"/..?*; do
+        [ -L "$entry" ] || continue
+        if [ -e "$entry" ]; then continue; fi
+        name=${entry##*/}
+        want=$(rel_target "$WT" "$CFG/$name")
+        if [ "$(readlink "$entry")" = "$want" ]; then
+            warn "DANGLING : $entry (config item removed)"
+            ISSUES=$((ISSUES + 1))
+        fi
+    done
+}
+
+# cleanup() {{{3
+#
+# Remove temporary files, if any (registered as EXIT trap)
+cleanup() {
+    if [ -n "$TMPFILE" ]; then
+        rm -f "$TMPFILE"
+    fi
+    if [ -n "$HOOKTAIL" ]; then
+        rm -f "$HOOKTAIL"
+    fi
+}
+trap cleanup EXIT
+
+# cmd_init() {{{3
+#
+# Bootstrap a local project: fresh bare repo, first worktree, share/, wiring
+# usage: cmd_init DIR [BRANCH]
+#     BRANCH defaults to your configured init.defaultBranch, else main
+cmd_init() {
+    local agents=no claude=no repo=no
+    while [ $# -gt 0 ]; do
+        case $1 in
+            --opencode) agents=yes ;;
+            --claude) claude=yes ;;
+            --repo) repo=yes ;;
+            --) shift; break ;;
+            -*) die "usage: cubicle init [--opencode] [--claude] [--repo] <dir> [branch]" ;;
+            *) break ;;
+        esac
+        shift
+    done
+
+    [ $# -ge 1 ] && [ $# -le 2 ] ||
+        die "usage: cubicle init [--opencode] [--claude] [--repo] <dir> [branch]"
+    for arg do
+        case $arg in -*) die "usage: cubicle init [--opencode] [--claude] [--repo] <dir> [branch]" ;; esac
+    done
+
+    local dir=$1
+    dir=$(abspath "$dir")
+    if [ -e "$dir" ] && [ -n "$(ls -A "$dir" 2>/dev/null)" ]; then
+        die "'$dir' already exists and is not empty"
+    fi
+    mkdir -p "$dir"
+
+    local branch=${2:-$(default_branch)}
+    info "creating bare repository: $dir/.bare (branch '$branch')"
+    git -c "init.defaultBranch=$branch" init --bare --quiet "$dir/.bare"
+    printf 'gitdir: ./.bare\n' >"$dir/.git"
+
+    local tree commit
+    info "seeding empty root commit on '$branch'"
+    tree=$(git -C "$dir/.bare" hash-object -w -t tree /dev/null)
+    commit=$(git -C "$dir/.bare" commit-tree "$tree" -m root)
+    git -C "$dir/.bare" update-ref "refs/heads/$branch" "$commit"
+
+    info "creating first worktree: $dir/$branch"
+    git -C "$dir/.bare" worktree add "$dir/$branch" "$branch"
+
+    _finish_project "$dir" "$branch" "$agents" "$claude" "$repo"
+}
+
+# cmd_link() {{{3
+#
+# Link config into the worktree containing DIR after parsing flags
+# usage: cmd_link [--quiet|-q] [DIR]
+#     DIR defaults to .
+cmd_link() {
+    local dir=
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -*) die "usage: cubicle link [DIR] (omit DIR for all worktrees)" ;;
+            *) dir=$1 ;;
+        esac
+        shift
+    done
+
+    # If no DIR arg, update links for all worktrees
+    if [ -z "$dir" ]; then
+        require_repo
+        _link_all_worktrees
+        info "worktrees checked: $_LINK_TOTAL"
+        if [ "$_LINK_FAILED" -gt 0 ]; then
+            warn "$_LINK_FAILED link operation(s) failed"
+            exit 1
+        fi
+        ok "all worktrees processed"
+        return 0
+    fi
+
+    [ -d "$dir" ] || die "not a directory: $dir"
+
+    local top cfg
+    top=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null) ||
+        die "'$dir' is not inside a git repository"
+
+    COMMON_DIR=$(common_dir_of "$dir")
+    cfg=$(resolve_cfg "$top")
+    install_excludes "$cfg"
+    link_into "$top" "$cfg"
+}
+
+# cmd_path() {{{3
+#
+# Print the recorded config directory (exit 1 when nothing is recorded)
+cmd_path() {
+    [ $# -eq 0 ] || die "usage: cubicle path"
+    require_repo
+    local f
+    f=$(record_file)
+    if [ -s "$f" ]; then
+        head -n 1 "$f"
+    else
+        warn "no config recorded (wiring is created by 'cubicle clone'/'cubicle init')"
+        exit 1
+    fi
+}
+
+# cmd_worktree() {{{3
+#
+# Wrap 'git worktree add', then ensure every worktree is linked
+# usage: cmd_worktree <git worktree add options> PATH
+cmd_worktree() {
+    [ $# -ge 1 ] ||
+        die "usage: cubicle worktree [<git worktree add options>] <path>"
+    git worktree add "$@" || return $?
+    require_repo
+    # relink quietly: the user just watched git's own output
+    QUIET=yes _link_all_worktrees
+    if [ "$_LINK_FAILED" -gt 0 ]; then
+        warn "created worktree but $_LINK_FAILED link operation(s) failed (run 'cubicle link')"
+    fi
+}
+
+# _link_all_worktrees() {{{3
+#
+# Link every worktree of the current project
+# Sets _LINK_TOTAL and _LINK_FAILED (worktrees with failed links)
+_link_all_worktrees() {
+    local cfg wt
+    _LINK_TOTAL=0
+    _LINK_FAILED=0
+    cfg=$(resolve_cfg "$(top_of .)")
+    install_excludes "$cfg"
+
+    TMPFILE=$(mktemp "${TMPDIR:-/tmp}/cubicle.worktrees.XXXXXXXX") ||
+        die "failed to create temporary file"
+    save_worktrees "$TMPFILE"
+    [ -s "$TMPFILE" ] || die "no worktrees found"
+
+    while IFS= read -r wt; do
+        [ -n "$wt" ] || continue
+        _LINK_TOTAL=$((_LINK_TOTAL + 1))
+        info "==> $wt"
+        if path_inside "$wt" "$cfg"; then
+            warn "skipping $wt (inside config repo)"
+            continue
+        fi
+        if ! link_into "$wt" "$cfg"; then
+            _LINK_FAILED=$((_LINK_FAILED + 1))
+        fi
+    done <"$TMPFILE"
+    rm -f "$TMPFILE"
+    TMPFILE=
+}
+
+# Main {{{1
+#
+# Bail if sourced by test harness
+${__SOURCED__:+return}
+
+# Parse global options
+#
+while [ $# -gt 0 ]; do
+    case $1 in
+        -q|--quiet)   QUIET=yes ;;
+        -h|--help)    print_help; exit 0 ;;
+        -V|--version) print_version; exit 0 ;;
+        -*)           warn "Unknown option: $1"; print_help; exit 1 ;;
+        *)            break ;;
+    esac
+    shift
+done
+
+if [ $# -lt 1 ]; then
+    print_help
+    exit 1
+fi
+
+cmd=$1
+shift
+
+case $cmd in
+    clone)    cmd_clone "$@" ;;
+    check)    cmd_check "$@" ;;
+    init)     cmd_init "$@" ;;
+    link)     cmd_link "$@" ;;
+    path)     cmd_path "$@" ;;
+    worktree) cmd_worktree "$@" ;;
+    *)
+        warn "Unknown command: $cmd"
+        print_help
+        exit 1
+        ;;
+esac

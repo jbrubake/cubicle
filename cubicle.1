@@ -1,0 +1,141 @@
+.\" Manual page for cubicle.
+.\" SPDX-License-Identifier: GPL-3.0-or-later
+.TH CUBICLE 1 "2026-08-24" "cubicle 1.0.0" "User Commands"
+.SH NAME
+cubicle \- link shared agent config and other files into git worktrees
+.SH SYNOPSIS
+.B cubicle
+.RI [ options ]
+.I command
+.RI [ arguments ]
+.SH DESCRIPTION
+.B git
+worktrees are ideal for running parallel agent sessions on one project,
+but makes it difficult to manage untracked files across each worktree.
+.B cubicle
+allows you to have a single source-of-truth for files that should not be in the
+main project repository but may need to be version controlled separately.
+.B cubicle
+keeps one copy of AI-agent configuration and any other files in a standalone
+.I share/
+repository beside a project's git worktrees and makes it visible inside every
+worktree through relative symlinks. A managed
+.B post-checkout
+hook re-links automatically after checkouts and worktree creation, and
+anchored
+.I info/exclude
+rules keep the links out of
+.BR git\ status .
+.PP
+Projects are laid out as:
+.PP
+.nf
+    project/
+    +-- .bare/       bare repository (common git dir)
+    +-- share/       the shared files repository
+    +-- <branch>/    worktrees; each links to the top level of share/
+.fi
+.SH OPTIONS
+.TP
+.BR \-q , \-\-quiet
+Suppress non\-warning output.
+.TP
+.BR \-h , \-\-help
+Print help.
+.TP
+.BR \-V , \-\-version
+Print version and license information.
+All three are global options, recognized only in front position, before the
+command name.
+.SH COMMANDS
+.TP
+.B clone \fR[\fB--opencode\fR]\ [\fB--claude\fR]\ [\fB--repo\fR]\ \fIurl\fR\ [\fIdir\fR]
+Create a bare clone of
+.I url
+to
+.IR dir/.bare .
+The first worktree is named after the default branch. Create
+.I share/
+and setup the post-checkout hooks.
+
+The \fB--opencode\fR option creates \fIAGENTS.md\fR and \fI.opencode/\fR in
+.I share
+and \fB--claude\fR creates \fICLAUDE.md\fR and \fI.claude/settings.json\fR.
+Without either option
+.I share/
+starts empty. \fB--repo\fR makes
+.I share/
+into a \fBgit\fR repository.
+.TP
+.B init \fR[\fB--opencode\fR]\ [\fB--claude\fR]\ [\fB--repo\fR]\ \fIurl\fR\ [\fIbranch\fR]
+Functions as
+.B clone
+but create a local bare repository instead of a clone.
+.I branch
+defaults to
+.B init.defaultBranch\fR,
+else
+.BR main .
+.TP
+.B worktree \fR[\fI<git worktree add options>\fR] \fIpath\fR
+Run
+.B git worktree add
+with the given arguments, and update links in all worktrees.
+All arguments are passed through to
+.BR git .
+.TP
+.B link \fR[\fIdir\fR]
+Update links to
+.I share/
+into worktree
+.IR dir .
+With no
+.IR dir ,
+update every worktree of the project.
+.TP
+.B path
+Print the recorded config directory. Nothing is printed and the command fails if
+nothing is recorded.
+.TP
+.B check
+Check the status of links and hooks.
+.SH LINKING RULES
+Top-level entries of
+.I share/
+(hidden files included except for
+.I .git*
+which are skipped) are symlinked into each worktree root. Existing correct links
+and files remain. Links pointing elsewhere are left alone and reported.
+.B check
+additionally reports stale managed links whose config item was removed
+from the config repository.
+.SH FILES
+.TP
+.I <common-git-dir>/cubicle-config-path
+The absolute path of the config directory.
+.TP
+.I <common-git-dir>/hooks/post-checkout
+The block required by
+.B cubicle
+is appended to the file and marked with
+.I CUBICLE-MANAGED-HOOK-v1
+to preserve existing hooks. Updates rewrite only that block.
+.TP
+.I <common-git-dir>/info/exclude
+Ignore rules for the linked items.
+.SH EXIT STATUS
+0 on success; 1 on usage errors, setup issues, or issues reported by
+.BR check .
+Other non-zero codes may propagate from
+.B git
+when an underlying operation (for example
+.BR clone )
+fails.
+.SH SEE ALSO
+.BR git-worktree (1)
+.SH AUTHOR
+Jeremy Brubaker <jbrubake@orionarts.dev>
+.SH LICENSE
+GPLv3+; see the header of the
+.B cubicle
+script for the full notice.
