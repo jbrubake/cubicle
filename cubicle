@@ -579,7 +579,7 @@ _wire() {
 
     install_hook
     install_excludes "$cfg"
-    link_into "$top" "$cfg" "yes"
+    link_into "$top" "$cfg"
     ok "linked current worktree ($top)"
     echo
     info "config : $cfg"
