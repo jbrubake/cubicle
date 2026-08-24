@@ -215,31 +215,11 @@ resolve_cfg() {
     cfg=$(abspath "$(dirname "$base")/share")
     [ -d "$cfg" ] ||
         die "config directory not found: $cfg (expected '<project>/share' beside the worktrees, or a project created by 'cubicle clone/init')"
-    if [ -z "$(share_items "$cfg")" ]; then
-        warn "config dir has no linkable content yet: $cfg"
-    fi
     printf '%s\n' "$cfg"
 }
 
 # Item iteration {{{2
 #
-# share_items() {{{3
-#
-# Print the top-level items of CFG to link into worktrees, one per line.
-# Informational/display use only: output is subject to word splitting.
-# For behavior, use for_each_share_item instead. Skips git metadata (any
-# name starting with ".git") but keeps other hidden files
-# usage: share_items CFG
-share_items() {
-    local entry base
-    for entry in "$1"/* "$1"/.[!.]* "$1"/..?*; do
-        [ -e "$entry" ] || [ -L "$entry" ] || continue
-        base=${entry##*/}
-        case $base in .git*) continue ;; esac
-        printf '%s\n' "$base"
-    done
-}
-
 # for_each_share_item() {{{3
 #
 # Invoke FUNC NAME [ARGS...] for every top-level item NAME of CFG that
@@ -674,7 +654,7 @@ cmd_check() {
     [ $# -eq 0 ] || die "usage: cubicle check"
     require_repo
     local ISSUES=0
-    local CHECK_N=0 CHECK_EXC='' WT='' CFG=''
+    local CHECK_EXC='' WT='' CFG=''
     local top hook exc n wt
     top=$(top_of .)
 
@@ -689,10 +669,9 @@ cmd_check() {
     hdr "config"
     cfg=$(resolve_cfg "$(top_of .)")
     ok "config   : $cfg"
-    CHECK_N=0
     for_each_share_item "$cfg" _check_list_item
-    if [ "$CHECK_N" -eq 0 ]; then
-        info "config has no linkable content: $cfg (empty share is valid)"
+    if ! ls -A "$cfg" 2>/dev/null | grep -v '^\.git' | grep -q . ; then
+        warn "share/ has no linkable content yet"
     fi
     while IFS= read -r wt; do
         [ -n "$wt" ] || continue
@@ -771,7 +750,6 @@ cmd_check() {
 #
 _check_list_item() {
     ok "has      : $1"
-    CHECK_N=$((CHECK_N + 1))
 }
 
 # _check_check_exclude() {{{4

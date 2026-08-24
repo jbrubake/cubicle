@@ -406,7 +406,9 @@ e2e_init_empty_share() {
     done
     cd "$proj/trunk" || return 1
     assert_rc0 "$CUBICLE_BIN" link
-    assert_rc0 "$CUBICLE_BIN" check
+    capture "$CUBICLE_BIN" check
+    assert_eq "$RC" 0 "empty share is valid: check must not fail"
+    assert_contains "$ERR" 'no linkable content'
 }
 
 e2e_claude_stubs() {
