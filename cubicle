@@ -97,29 +97,27 @@ hdr() { printf '\n== %s ==\n' "$*"; }
 # and resolves '..' against preceding segments
 # usage: abspath PATH
 abspath() {
-    local p=$1 out='' seg q
+    local p=$1 out='' seg
     case $p in
         /*) ;;
-        *)  p=$PWD/$p ;;
+        *) p=$PWD/$p ;;
     esac
-    p=${p#/}
+    p=${p#/}/ # normalize to 'segments/' form up front
     while [ -n "$p" ]; do
         seg=${p%%/*}
         case $seg in
-            ''|.) ;;
+            '' | .) ;;
             ..)
-                q=${out%/}
-                case $q in
-                    */*) out=${q%/*}/ ;;
-                    *)   out= ;;
+                case $out in
+                    */*) out=${out%/*} ;;
+                    *) out= ;;
                 esac
                 ;;
-            *)  out=$out$seg/ ;;
+            *)  out=${out:+$out/}$seg ;;
         esac
-        [ "$p" = "${p#*/}" ] && break
         p=${p#*/}
     done
-    printf '/%s\n' "${out%/}"
+    printf '/%s\n' "$out"
 }
 
 # rel_target() {{{3
