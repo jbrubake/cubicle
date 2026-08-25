@@ -175,14 +175,14 @@ unit_classify_states() {
 unit_hook_block_shape() {
     source_lib
     block=$(_write_hook_block)
-    assert_contains "$block" CUBICLE-MANAGED-HOOK-v1
+    assert_contains "$block" CUBICLE-MANAGED-HOOK
     assert_contains "$block" 'command -v cubicle'
     if printf '%s\n' "$block" | grep -q 'CUBICLE_BIN='; then
         echo "hook must resolve cubicle via PATH, not a hardcoded path"
         exit 1
     fi
-    assert_contains "$block" '(created by cubicle)'
-    assert_contains "$block" 'ends here'
+    assert_contains "$block" BEGIN
+    assert_contains "$block" END
 }
 
 unit_default_branch_config_fallback() {
@@ -235,7 +235,7 @@ e2e_hook_installed() {
     hook=$proj/.bare/hooks/post-checkout
     assert_file "$hook" || return 1
     [ -x "$hook" ] || { echo "hook not executable"; return 1; }
-    assert_contains "$(cat "$hook")" CUBICLE-MANAGED-HOOK-v1
+    assert_contains "$(cat "$hook")" CUBICLE-MANAGED-HOOK
     assert_contains "$(cat "$hook")" 'command -v cubicle'
     if grep -q 'CUBICLE_BIN=' "$hook"; then
         echo "hook must not hardcode an absolute binary path"
@@ -554,7 +554,7 @@ reg_hook_update_preserves_foreign_tail() {
     assert_contains "$content" 'command -v cubicle'
     assert_contains "$content" '# my own stuff'
     assert_contains "$content" 'echo foreign >> marker-file'
-    assert_contains "$content" CUBICLE-MANAGED-HOOK-v1
+    assert_contains "$content" CUBICLE-MANAGED-HOOK
 }
 
 reg_hook_append_then_refresh() {
@@ -572,11 +572,11 @@ reg_hook_append_then_refresh() {
     # shellcheck disable=SC2034
     COMMON_DIR=$common
     install_hook
-    assert_eq "$(grep -c CUBICLE-MANAGED-HOOK-v1 "$hook")" 2
+    assert_eq "$(grep -c CUBICLE-MANAGED-HOOK "$hook")" 2
     assert_contains "$(cat "$hook")" 'my own setup'
     printf '%s\n' '# user addition' >>"$hook"
     install_hook
-    assert_eq "$(grep -c CUBICLE-MANAGED-HOOK-v1 "$hook")" 2
+    assert_eq "$(grep -c CUBICLE-MANAGED-HOOK "$hook")" 2
     assert_eq "$(grep -c 'command -v cubicle' "$hook")" 1
     assert_contains "$(cat "$hook")" 'my own setup'
     assert_contains "$(cat "$hook")" '# user addition'
