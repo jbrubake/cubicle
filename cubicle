@@ -303,9 +303,8 @@ link_item() {
 # usage: link_into WT CFG
 link_into() {
     local wt=$1 cfg=$2
-    if path_inside "$wt" "$cfg"; then
+    path_inside "$wt" "$cfg" &&
         die "refusing: worktree '$wt' is inside the config repo '$cfg'"
-    fi
     local rc=0
     for_each_share_item "$cfg" link_item "$wt" "$cfg" || rc=$?
     return $rc
