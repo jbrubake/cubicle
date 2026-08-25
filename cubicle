@@ -126,34 +126,27 @@ abspath() {
 # abspath). Pure sh; no realpath dependency
 # usage: rel_target BASE TARGET
 rel_target() {
-    local base item seg up=
+    local base item seg up='' r
     base=$(abspath "$1")
     item=$(abspath "$2")
-    if [ "$base" = "$item" ]; then
-        printf '.\n'
-        return 0
-    fi
-    base=${base#/}
+    base=${base#/}                # root becomes empty -> loop is skipped
+    [ -n "$base" ] && base=$base/ # else normalize to 'segments/' form
     item=${item#/}
     while [ -n "$base" ]; do
-        if [ "$base" = "${base#*/}" ]; then
-            seg=$base
-            base=
-        else
-            seg=${base%%/*}
-            base=${base#*/}
-        fi
+        seg=${base%%/*}
+        base=${base#*/}
         case $item in
             "$seg")   item= ;;
             "$seg"/*) item=${item#*/} ;;
             *)        up=../$up ;;
         esac
     done
-    if [ -n "$up" ] && [ -z "$item" ]; then
-        printf '%s\n' "${up%/}"
+    if [ -n "$item" ]; then
+        r=$up$item # up keeps its trailing '/' as the join
     else
-        printf '%s\n' "$up$item"
+        r=${up%/}  # nothing follows: trim it ('.' if equal)
     fi
+    printf '%s\n' "${r:-.}"
 }
 
 # path_inside() {{{3
