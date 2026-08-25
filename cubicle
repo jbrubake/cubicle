@@ -165,10 +165,7 @@ path_inside() {
     local a b
     a=$(abspath "$1")
     b=$(abspath "$2")
-    [ "$a" = "$b" ] && return 0
-    case "$a/" in
-        "$b"/*) return 0 ;;
-    esac
+    case "$a/" in "$b"/*) return 0 ;; esac
     return 1
 }
 
