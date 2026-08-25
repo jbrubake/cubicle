@@ -467,18 +467,17 @@ cmd_check() {
     [ $# -eq 0 ] || die "usage: cubicle check"
     require_repo
     local ISSUES=0
-    local top hook exc n wt
-    top=$(top_of .)
+    local top hook exc n wts
 
-    local wts
     wts=$(worktree_paths)
+    top=$(top_of .)
 
     hdr "repo"
     ok "worktree : $top"
     ok "common   : $COMMON_DIR"
 
     hdr "config"
-    cfg=$(resolve_cfg "$(top_of .)")
+    cfg=$(resolve_cfg "$top")
     ok "config   : $cfg"
     for_each_share_item "$cfg" _check_list_item
     # ls | grep is deliberate. We only care if it finds something or not
