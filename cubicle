@@ -24,7 +24,6 @@ set -eu
 VERSION=1.0.0
 MARKER=CUBICLE-MANAGED-HOOK-v1
 COMMON_DIR=
-TMPFILE=
 HOOKTAIL=
 QUIET=no
 
@@ -309,17 +308,16 @@ link_into() {
     for_each_share_item "$cfg" link_item "$wt" "$cfg" || return $?
 }
 
-# save_worktrees() {{{3
+# worktree_paths() {{{3
 #
-# Write the path of every non-bare worktree of the current repository to FILE
-# usage: save_worktrees FILE
-save_worktrees() {
+# Print the path of every non-bare worktree of the current repository
+worktree_paths() {
     git worktree list --porcelain | awk '
         /^worktree / { wt = substr($0, 10); bare = 0; next }
         /^bare$/     { bare = 1; next }
         /^$/         { if (wt != "" && !bare) print wt; wt = ""; bare = 0; next }
         END          { if (wt != "" && !bare) print wt }
-    ' >"$1"
+    '
 }
 
 # Wiring {{{2
@@ -505,9 +503,8 @@ cmd_check() {
     local top hook exc n wt
     top=$(top_of .)
 
-    TMPFILE=$(mktemp "${TMPDIR:-/tmp}/cubicle.check.XXXXXXXX") ||
-        die "failed to create temporary file"
-    save_worktrees "$TMPFILE"
+    local wts
+    wts=$(worktree_paths)
 
     hdr "repo"
     ok "worktree : $top"
@@ -528,7 +525,9 @@ cmd_check() {
             warn "config lives INSIDE worktree $wt (should sit beside the worktrees)"
             ISSUES=$((ISSUES + 1))
         fi
-    done <"$TMPFILE"
+    done <<EOF
+$wts
+EOF
 
     hdr "hook"
     hook=$COMMON_DIR/hooks/post-checkout
@@ -579,13 +578,12 @@ cmd_check() {
         WT=$wt
         for_each_share_item "$cfg" _check_check_link
         _check_orphans
-    done <"$TMPFILE"
+    done <<EOF
+$wts
+EOF
     if [ "$n" -eq 0 ]; then
         info "none found"
     fi
-    rm -f "$TMPFILE"
-    TMPFILE=
-
     hdr "result"
     if [ "$ISSUES" -eq 0 ]; then
         ok "no issues found"
@@ -650,9 +648,6 @@ _check_orphans() {
 #
 # Remove temporary files, if any (registered as EXIT trap)
 cleanup() {
-    if [ -n "$TMPFILE" ]; then
-        rm -f "$TMPFILE"
-    fi
     if [ -n "$HOOKTAIL" ]; then
         rm -f "$HOOKTAIL"
     fi
@@ -804,16 +799,14 @@ _finish_project() {
 # Link every worktree of the current project
 # Sets _LINK_TOTAL and _LINK_FAILED (worktrees with failed links)
 _link_all_worktrees() {
-    local cfg wt
+    local cfg wt wts
     _LINK_TOTAL=0
     _LINK_FAILED=0
     cfg=$(resolve_cfg "$(top_of .)")
     install_excludes "$cfg"
 
-    TMPFILE=$(mktemp "${TMPDIR:-/tmp}/cubicle.worktrees.XXXXXXXX") ||
-        die "failed to create temporary file"
-    save_worktrees "$TMPFILE"
-    [ -s "$TMPFILE" ] || die "no worktrees found"
+    wts=$(worktree_paths)
+    [ -n "$wts" ] || die "no worktrees found"
 
     while IFS= read -r wt; do
         [ -n "$wt" ] || continue
@@ -826,9 +819,9 @@ _link_all_worktrees() {
         if ! link_into "$wt" "$cfg"; then
             _LINK_FAILED=$((_LINK_FAILED + 1))
         fi
-    done <"$TMPFILE"
-    rm -f "$TMPFILE"
-    TMPFILE=
+    done <<EOF
+$wts
+EOF
 }
 
 # Main {{{1
