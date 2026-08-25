@@ -309,24 +309,17 @@ link_into() {
     for_each_share_item "$cfg" link_item "$wt" "$cfg" || return $?
 }
 
-# worktree_paths() {{{3
+# save_worktrees() {{{3
 #
-# Print the path of every non-bare worktree of the current repository
-worktree_paths() {
+# Write the path of every non-bare worktree of the current repository to FILE
+# usage: save_worktrees FILE
+save_worktrees() {
     git worktree list --porcelain | awk '
         /^worktree / { wt = substr($0, 10); bare = 0; next }
         /^bare$/     { bare = 1; next }
         /^$/         { if (wt != "" && !bare) print wt; wt = ""; bare = 0; next }
         END          { if (wt != "" && !bare) print wt }
-    '
-}
-
-# save_worktrees() {{{3
-#
-# Write worktree_paths output to FILE
-# usage: save_worktrees FILE
-save_worktrees() {
-    worktree_paths >"$1"
+    ' >"$1"
 }
 
 # Wiring {{{2
