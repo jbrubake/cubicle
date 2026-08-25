@@ -69,7 +69,7 @@ EOF
 
 # Functions {{{1
 #
-# Printing functions {{{2
+# Printing {{{2
 #
 # Print messages to stderr. die() exits with an error
 #
@@ -204,121 +204,6 @@ resolve_cfg() {
     printf '%s\n' "$cfg"
 }
 
-# Item iteration {{{2
-#
-# for_each_share_item() {{{3
-#
-# Invoke FUNC NAME [ARGS...] for every top-level item NAME of CFG that
-# would be linked into worktrees. Whitespace-safe: names are expanded as
-# single words and never re-split, so items containing spaces or newlines
-# work. Skips git metadata (any name starting with ".git") but keeps other
-# hidden files. Aggregates callback failures: returns non-zero if any
-# invocation fails
-# usage: for_each_share_item CFG FUNC [ARGS...]
-for_each_share_item() {
-    local cfg=$1 func=$2 entry base rc=0
-    shift 2
-    for entry in "$cfg"/* "$cfg"/.[!.]* "$cfg"/..?*; do
-        [ -e "$entry" ] || [ -L "$entry" ] || continue
-        base=${entry##*/}
-        case $base in .git*) continue ;; esac
-        if ! "$func" "$base" "$@"; then
-            rc=1
-        fi
-    done
-    return $rc
-}
-
-# classify() {{{3
-#
-# Print the link state of config item NAME in worktree WT for config CFG
-#     output: linked|other|realfile|dangling|missing|nocfg
-# usage: classify NAME WT CFG
-classify() {
-    local name=$1 wt=$2 cfg=$3
-    local path="$wt/$name" item="$cfg/$name" cur des
-    if [ ! -e "$item" ]; then
-        printf 'nocfg\n'
-    elif [ -L "$path" ] && [ ! -e "$path" ]; then
-        printf 'dangling\n'
-    elif [ -L "$path" ]; then
-        cur=$(readlink "$path")
-        des=$(rel_target "$wt" "$item")
-        if [ "$cur" = "$des" ]; then printf 'linked\n'; else printf 'other\n'; fi
-    elif [ -e "$path" ]; then
-        printf 'realfile\n'
-    else
-        printf 'missing\n'
-    fi
-}
-
-# link_item() {{{3
-#
-# Idempotently link config item NAME into worktree WT, reporting by state
-# usage: link_item NAME WT CFG
-link_item() {
-    local name=$1 wt=$2 cfg=$3
-    local path="$wt/$name" item="$cfg/$name" state des cur
-
-    case $(classify "$name" "$wt" "$cfg") in
-        nocfg)
-            warn "no $name in $cfg (nothing to link)"
-            ;;
-        linked)
-            ok "$name: already linked"
-            ;;
-        other)
-            cur=$(readlink "$path")
-            info "$name: symlink points elsewhere ($cur); left untouched"
-            ;;
-        realfile)
-            warn "$name: real file present, skipped (cubicle never overwrites)"
-            ;;
-        dangling)
-            des=$(rel_target "$wt" "$item")
-            rm -f "$path"
-            ln -s "$des" "$path" || {
-                warn "failed to relink $name in $wt"
-                return 1
-            }
-            ok "$name -> $des (repaired dangling link)"
-            ;;
-        missing)
-            des=$(rel_target "$wt" "$item")
-            ln -s "$des" "$path" || {
-                warn "failed to link $name in $wt"
-                return 1
-            }
-            ok "$name -> $des"
-            ;;
-    esac
-}
-
-# link_into() {{{3
-#
-# Link every top-level item from CFG into worktree WT. Refuse if WT lies
-# inside CFG. Returns non-zero if any link operation failed
-# usage: link_into WT CFG
-link_into() {
-    local wt=$1 cfg=$2
-    path_inside "$wt" "$cfg" &&
-        die "refusing: worktree '$wt' is inside the config repo '$cfg'"
-
-    for_each_share_item "$cfg" link_item "$wt" "$cfg" || return $?
-}
-
-# worktree_paths() {{{3
-#
-# Print the path of every non-bare worktree of the current repository
-worktree_paths() {
-    git worktree list --porcelain | awk '
-        /^worktree / { wt = substr($0, 10); bare = 0; next }
-        /^bare$/     { bare = 1; next }
-        /^$/         { if (wt != "" && !bare) print wt; wt = ""; bare = 0; next }
-        END          { if (wt != "" && !bare) print wt }
-    '
-}
-
 # Wiring {{{2
 #
 # _write_hook_block() {{{3
@@ -383,7 +268,7 @@ install_excludes() {
     ok "ignore rules ensured ($exc)"
 }
 
-# Stub generators {{{2
+# Stub generators {{{3
 #
 # _stub_*(): Generate stub configs for different AI agents
 _stub_opencode() { # DIR
@@ -400,6 +285,202 @@ _stub_claude() { # DIR
 
     touch "$1/CLAUDE.md"
     ok "stub created: $1/CLAUDE.md"
+}
+
+# Other {{{2
+#
+# classify() {{{3
+#
+# Print the link state of config item NAME in worktree WT for config CFG
+#     output: linked|other|realfile|dangling|missing|nocfg
+# usage: classify NAME WT CFG
+classify() {
+    local name=$1 wt=$2 cfg=$3
+    local path="$wt/$name" item="$cfg/$name" cur des
+    if [ ! -e "$item" ]; then
+        printf 'nocfg\n'
+    elif [ -L "$path" ] && [ ! -e "$path" ]; then
+        printf 'dangling\n'
+    elif [ -L "$path" ]; then
+        cur=$(readlink "$path")
+        des=$(rel_target "$wt" "$item")
+        if [ "$cur" = "$des" ]; then printf 'linked\n'; else printf 'other\n'; fi
+    elif [ -e "$path" ]; then
+        printf 'realfile\n'
+    else
+        printf 'missing\n'
+    fi
+}
+
+# _finish_project() {{{3
+#
+# Finish project setup: create share/ with option contents and wire the first
+# worktree
+# usage: _finish_project DIR BRANCH AGENTS CLAUDE REPO
+_finish_project() {
+    local dir=$1 branch=$2 agents=$3 claude=$4 repo=$5
+    local cfg top
+
+    info "creating first worktree: $dir/$branch (branch '$branch')"
+    git -C "$dir/.bare" worktree add "$dir/$branch" "$branch"
+
+    mkdir -p "$dir/share"
+    if [ "$repo" = yes ]; then
+        git -c "init.defaultBranch=$(default_branch)" -C "$dir/share" init -q
+        info "repository created in $dir/share (no commits; history is yours)"
+    fi
+    [ "$agents" = yes ] && _stub_opencode "$dir/share"
+    [ "$claude" = yes ] && _stub_claude "$dir/share"
+    ok "config directory ready: $dir/share"
+
+    # wire the first worktree; COMMON_DIR feeds install_hook/install_excludes
+    COMMON_DIR=$(git -C "$dir/$branch" rev-parse --path-format=absolute --git-common-dir)
+    top=$(top_of "$dir/$branch")
+    cfg=$(resolve_cfg "$top")
+    install_hook
+    install_excludes "$cfg"
+    link_into "$top" "$cfg" || warn "some links failed (run 'cubicle link')"
+    ok "linked current worktree ($top)"
+    echo
+    info "config : $cfg"
+    info "hook   : fires on every checkout / worktree add (incl. opencode TUI)"
+
+    ok   "project ready: $dir"
+    info "layout : .bare/ + share/ + $branch/"
+    info "next   : put files in $dir/share/, they appear in every worktree"
+    info "then   : \$ cubicle link # to create the symlinks"
+    info "daily  : cd $dir/$branch && cubicle worktree ../feature -b feature"
+}
+
+# for_each_share_item() {{{3
+#
+# Invoke FUNC NAME [ARGS...] for every top-level item NAME of CFG that
+# would be linked into worktrees. Whitespace-safe: names are expanded as
+# single words and never re-split, so items containing spaces or newlines
+# work. Skips git metadata (any name starting with ".git") but keeps other
+# hidden files. Aggregates callback failures: returns non-zero if any
+# invocation fails
+# usage: for_each_share_item CFG FUNC [ARGS...]
+for_each_share_item() {
+    local cfg=$1 func=$2 entry base rc=0
+    shift 2
+    for entry in "$cfg"/* "$cfg"/.[!.]* "$cfg"/..?*; do
+        [ -e "$entry" ] || [ -L "$entry" ] || continue
+        base=${entry##*/}
+        case $base in .git*) continue ;; esac
+        if ! "$func" "$base" "$@"; then
+            rc=1
+        fi
+    done
+    return $rc
+}
+
+# _link_all_worktrees() {{{3
+#
+# Link every worktree of the current project
+# Sets _LINK_TOTAL and _LINK_FAILED (worktrees with failed links)
+_link_all_worktrees() {
+    local cfg wt wts
+    _LINK_TOTAL=0 _LINK_FAILED=0
+    cfg=$(resolve_cfg "$(top_of .)")
+    install_excludes "$cfg"
+
+    wts=$(worktree_paths)
+    [ -n "$wts" ] || die "no worktrees found"
+
+    while IFS= read -r wt; do
+        _LINK_TOTAL=$((_LINK_TOTAL + 1))
+        info "==> $wt"
+        if path_inside "$wt" "$cfg"; then
+            warn "skipping $wt (inside config repo)"
+            continue
+        fi
+        link_into "$wt" "$cfg" ||
+            _LINK_FAILED=$((_LINK_FAILED + 1))
+    done <<EOF
+$wts
+EOF
+}
+
+# link_item() {{{3
+#
+# Idempotently link config item NAME into worktree WT, reporting by state
+# usage: link_item NAME WT CFG
+link_item() {
+    local name=$1 wt=$2 cfg=$3
+    local path="$wt/$name" item="$cfg/$name" state des cur
+
+    case $(classify "$name" "$wt" "$cfg") in
+        nocfg)
+            warn "no $name in $cfg (nothing to link)"
+            ;;
+        linked)
+            ok "$name: already linked"
+            ;;
+        other)
+            cur=$(readlink "$path")
+            info "$name: symlink points elsewhere ($cur); left untouched"
+            ;;
+        realfile)
+            warn "$name: real file present, skipped (cubicle never overwrites)"
+            ;;
+        dangling)
+            des=$(rel_target "$wt" "$item")
+            rm -f "$path"
+            ln -s "$des" "$path" || {
+                warn "failed to relink $name in $wt"
+                return 1
+            }
+            ok "$name -> $des (repaired dangling link)"
+            ;;
+        missing)
+            des=$(rel_target "$wt" "$item")
+            ln -s "$des" "$path" || {
+                warn "failed to link $name in $wt"
+                return 1
+            }
+            ok "$name -> $des"
+            ;;
+    esac
+}
+
+# link_into() {{{3
+#
+# Link every top-level item from CFG into worktree WT. Refuse if WT lies
+# inside CFG. Returns non-zero if any link operation failed
+# usage: link_into WT CFG
+link_into() {
+    local wt=$1 cfg=$2
+    path_inside "$wt" "$cfg" &&
+        die "refusing: worktree '$wt' is inside the config repo '$cfg'"
+
+    for_each_share_item "$cfg" link_item "$wt" "$cfg" || return $?
+}
+
+# _make_project_dir() {{{3
+#
+# Create DIR and print its absolute path. Die if DIR is non-empty
+# usage: _make_project_dir DIR
+_make_project_dir() {
+    local dir
+    dir=$(abspath "$1")
+    if [ -e "$dir" ] && [ -n "$(ls -A "$dir" 2>/dev/null)" ]; then
+        die "'$dir' already exists and is not empty"
+    fi
+    mkdir -p "$dir"
+    printf '%s\n' "$dir"
+}
+
+# worktree_paths() {{{3
+#
+# Print the path of every non-bare worktree of the current repository
+worktree_paths() {
+    git worktree list --porcelain | awk '
+        /^worktree / { wt = substr($0, 10); bare = 0; next }
+        /^bare$/     { bare = 1; next }
+        /^$/         { if (wt != "" && !bare) print wt; wt = ""; bare = 0; next }
+        END          { if (wt != "" && !bare) print wt }
+    '
 }
 
 # Commands {{{2
@@ -678,87 +759,6 @@ cmd_worktree() {
     QUIET=yes _link_all_worktrees
     [ "$_LINK_FAILED" -eq 0 ] ||
         warn "created worktree but $_LINK_FAILED link operation(s) failed (run 'cubicle link')"
-}
-
-# _make_project_dir() {{{3
-#
-# Create DIR and print its absolute path. Die if DIR is non-empty
-# usage: _make_project_dir DIR
-_make_project_dir() {
-    local dir
-    dir=$(abspath "$1")
-    if [ -e "$dir" ] && [ -n "$(ls -A "$dir" 2>/dev/null)" ]; then
-        die "'$dir' already exists and is not empty"
-    fi
-    mkdir -p "$dir"
-    printf '%s\n' "$dir"
-}
-
-# _finish_project() {{{3
-#
-# Finish project setup: create share/ with option contents and wire the first
-# worktree
-# usage: _finish_project DIR BRANCH AGENTS CLAUDE REPO
-_finish_project() {
-    local dir=$1 branch=$2 agents=$3 claude=$4 repo=$5
-    local cfg top
-
-    info "creating first worktree: $dir/$branch (branch '$branch')"
-    git -C "$dir/.bare" worktree add "$dir/$branch" "$branch"
-
-    mkdir -p "$dir/share"
-    if [ "$repo" = yes ]; then
-        git -c "init.defaultBranch=$(default_branch)" -C "$dir/share" init -q
-        info "repository created in $dir/share (no commits; history is yours)"
-    fi
-    [ "$agents" = yes ] && _stub_opencode "$dir/share"
-    [ "$claude" = yes ] && _stub_claude "$dir/share"
-    ok "config directory ready: $dir/share"
-
-    # wire the first worktree; COMMON_DIR feeds install_hook/install_excludes
-    COMMON_DIR=$(git -C "$dir/$branch" rev-parse --path-format=absolute --git-common-dir)
-    top=$(top_of "$dir/$branch")
-    cfg=$(resolve_cfg "$top")
-    install_hook
-    install_excludes "$cfg"
-    link_into "$top" "$cfg" || warn "some links failed (run 'cubicle link')"
-    ok "linked current worktree ($top)"
-    echo
-    info "config : $cfg"
-    info "hook   : fires on every checkout / worktree add (incl. opencode TUI)"
-
-    ok   "project ready: $dir"
-    info "layout : .bare/ + share/ + $branch/"
-    info "next   : put files in $dir/share/, they appear in every worktree"
-    info "then   : \$ cubicle link # to create the symlinks"
-    info "daily  : cd $dir/$branch && cubicle worktree ../feature -b feature"
-}
-
-# _link_all_worktrees() {{{3
-#
-# Link every worktree of the current project
-# Sets _LINK_TOTAL and _LINK_FAILED (worktrees with failed links)
-_link_all_worktrees() {
-    local cfg wt wts
-    _LINK_TOTAL=0 _LINK_FAILED=0
-    cfg=$(resolve_cfg "$(top_of .)")
-    install_excludes "$cfg"
-
-    wts=$(worktree_paths)
-    [ -n "$wts" ] || die "no worktrees found"
-
-    while IFS= read -r wt; do
-        _LINK_TOTAL=$((_LINK_TOTAL + 1))
-        info "==> $wt"
-        if path_inside "$wt" "$cfg"; then
-            warn "skipping $wt (inside config repo)"
-            continue
-        fi
-        link_into "$wt" "$cfg" ||
-            _LINK_FAILED=$((_LINK_FAILED + 1))
-    done <<EOF
-$wts
-EOF
 }
 
 # Main {{{1
