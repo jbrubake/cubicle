@@ -415,22 +415,24 @@ _stub_claude() { # DIR
 #     DIR defaults to URL basename without .git
 cmd_clone() {
     local agents=no claude=no repo=no
+    local usage="usage: cubicle clone [--opencode] [--claude] [--repo] <url> [dir]"
+
     while [ $# -gt 0 ]; do
         case $1 in
             --opencode) agents=yes ;;
             --claude) claude=yes ;;
             --repo) repo=yes ;;
             --) shift; break ;;
-            -*) die "usage: cubicle clone [--opencode] [--claude] [--repo] <url> [dir]" ;;
+            -*) die "$usage" ;;
             *) break ;;
         esac
         shift
     done
 
     [ $# -ge 1 ] && [ $# -le 2 ] ||
-        die "usage: cubicle clone [--opencode] [--claude] [--repo] <url> [dir]"
+        die "$usage"
     for arg do
-        case $arg in -*) die "usage: cubicle clone [--opencode] [--claude] [--repo] <url> [dir]" ;; esac
+        case $arg in -*) die "$usage" ;; esac
     done
 
     local url=$1
@@ -625,22 +627,23 @@ _check_orphans() {
 #     BRANCH defaults to your configured init.defaultBranch, else main
 cmd_init() {
     local agents=no claude=no repo=no
+    local usage="usage: cubicle init [--opencode] [--claude] [--repo] <dir> [branch]"
+
     while [ $# -gt 0 ]; do
         case $1 in
             --opencode) agents=yes ;;
             --claude) claude=yes ;;
             --repo) repo=yes ;;
             --) shift; break ;;
-            -*) die "usage: cubicle init [--opencode] [--claude] [--repo] <dir> [branch]" ;;
+            -*) die "$usage" ;;
             *) break ;;
         esac
         shift
     done
 
-    [ $# -ge 1 ] && [ $# -le 2 ] ||
-        die "usage: cubicle init [--opencode] [--claude] [--repo] <dir> [branch]"
+        die "$usage"
     for arg do
-        case $arg in -*) die "usage: cubicle init [--opencode] [--claude] [--repo] <dir> [branch]" ;; esac
+        case $arg in -*) die "$usage" ;; esac
     done
 
     local dir=$1
