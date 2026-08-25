@@ -1,5 +1,7 @@
 # cubicle
 
+[![tests](https://github.com/jbrubake/cubicle/actions/workflows/tests.yml/badge.svg)](https://github.com/jbrubake/cubicle/actions/workflows/tests.yml)
+
 Link shared agent config and other files into [git
 worktrees](https://git-scm.com/docs/git-worktree).
 
