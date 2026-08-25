@@ -407,12 +407,13 @@ _stub_claude() { # DIR
 # cmd_clone() {{{3
 #
 # Bootstrap a project from a remote: bare clone, first worktree, share/, wiring
-# usage: cmd_clone URL [DIR]
+# usage: cmd_clone [options] URL [DIR]
+#   Options:
+#       --opencode: install OpenCode stubs to share/
+#       --claude: install Claude stubs to share/
+#       --repo: initialize git repo in share/
 #     DIR defaults to URL basename without .git
 cmd_clone() {
-    # Options shared with init: --opencode / --claude seed stub bundles into
-    # share/. Parsing is getopt-style: options precede positionals, `--`
-    # forces the end of options.
     local agents=no claude=no repo=no
     while [ $# -gt 0 ]; do
         case $1 in
@@ -617,6 +618,10 @@ _check_orphans() {
 #
 # Bootstrap a local project: fresh bare repo, first worktree, share/, wiring
 # usage: cmd_init DIR [BRANCH]
+#   Options:
+#       --opencode: install OpenCode stubs to share/
+#       --claude: install Claude stubs to share/
+#       --repo: initialize git repo in share/
 #     BRANCH defaults to your configured init.defaultBranch, else main
 cmd_init() {
     local agents=no claude=no repo=no
