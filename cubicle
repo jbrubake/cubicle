@@ -510,9 +510,6 @@ _share_create() {
     [ $# -eq 4 ] || die "internal error: _share_create takes exactly four arguments"
     local dir=$1 agents=$2 claude=$3 repo=$4
     dir=$(abspath "$dir")
-    if [ -e "$dir" ] && [ -n "$(ls -A "$dir" 2>/dev/null)" ]; then
-        die "'$dir' already exists and is not empty"
-    fi
     local parent ptop=
     parent=$(dirname "$dir")
     ptop=$(git -C "$parent" rev-parse --show-toplevel 2>/dev/null || true)
