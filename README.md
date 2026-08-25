@@ -16,7 +16,7 @@ A project created with `cubicle` creates:
 - a standalone `share/` that can contain your AI-agent configuration and any
     other files that should be shared across worktrees. This directory can be
     version controlled separately if necessary
-- a `post-checkout` hook that automatically links each top-level file in
+- a `post-checkout` hook that automatically links each top-level entry in
     `share/` into each worktree
 - project `info/exclude` rules that prevent the links from showing up in a
     worktree's status output
@@ -30,20 +30,21 @@ Run `make install` or copy `cubicle` somewhere on your `PATH`.
 Start a brand-new project with OpenCode stubs:
 
 ```sh
-cubicle init --opencode ~/src/myproj # add OpenCode files to share/
+cubicle init --opencode ~/src/myproj # create empty OpenCode stubs in share/
 cd ~/src/myproj/main
 ```
 
 Or adopt an existing remote and create Claude stubs:
 
 ```sh
-cubicle clone --claude https://example.com/me/myproj.git # add Claude files to share/
+cubicle clone --claude https://example.com/me/myproj.git # create empty Claude stubs in share/
 cd ~/myproj/main
 ```
 
 Both commands create a bare repository and the `share/` directory. Passing the
-`--opencode` option populates it with files for OpenCode while the `--claude`
-option creates files for Claude. Omitting these options leaves `share/` empty.
+`--opencode` option creates empty OpenCode stubs (`AGENTS.md`, `.opencode/`)
+while `--claude` creates empty Claude stubs (`CLAUDE.md`, `.claude/`). Omitting
+these options leaves `share/` empty.
 Passing the `--repo` option makes `share` its own git repository.
 
 An empty `share/` is a valid state. Add files any time and run `cubicle link`
@@ -56,6 +57,8 @@ cd ~/src/myproj
 
 # Edit shared agent config
 $EDITOR share/AGENTS.md
+
+# Version it separately (requires creating share/ with --repo)
 git -C share commit -am "update guidance"
 
 # Create a new worktree for a task. Links into `share/` are automatically created
@@ -70,7 +73,7 @@ cubicle link
 Command                                                      | Purpose
 -------                                                      | -------
 `cubicle clone [--opencode] [--claude] [--repo] URL [DIR]`   | clone URL to DIR (Default: repo basename) and setup `share` and hooks
-`cubicle init [--opencode] [--claude] [--repo] DIR [BRANCH]` | same as clone but create a local repo in DIR (with BRANCH as the first worktree. Default: main)
+`cubicle init [--opencode] [--claude] [--repo] DIR [BRANCH]` | same as clone but creates a local repo in DIR (BRANCH names the first worktree. Default: main)
 `cubicle worktree ['git worktree add' args] PATH`            | run `git worktree add` and update links in all worktrees
 `cubicle link [DIR]`                                         | update links to `share/` items into worktree DIR. Omit DIR to update every worktree
 `cubicle check`                                              | check the status of links and the `cubicle` hooks

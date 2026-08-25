@@ -54,23 +54,31 @@ Create a bare clone of
 .I url
 to
 .IR dir/.bare .
-The first worktree is named after the default branch. Create
+The first worktree is named after the remote's default branch. Create
 .I share/
 and setup the post-checkout hooks.
 
-The \fB--opencode\fR option creates \fIAGENTS.md\fR and \fI.opencode/\fR in
-.I share
-and \fB--claude\fR creates \fICLAUDE.md\fR and \fI.claude/settings.json\fR.
+The \fB--opencode\fR option creates empty placeholders
+.I AGENTS.md
+and
+.I .opencode/
+in
+.IR share ;
+.B --claude
+likewise creates empty
+.I CLAUDE.md
+and
+.IR .claude/ .
 Without either option
 .I share/
 starts empty. \fB--repo\fR makes
 .I share/
 into a \fBgit\fR repository.
 .TP
-.B init \fR[\fB--opencode\fR]\ [\fB--claude\fR]\ [\fB--repo\fR]\ \fIurl\fR\ [\fIbranch\fR]
+.B init \fR[\fB--opencode\fR]\ [\fB--claude\fR]\ [\fB--repo\fR]\ \fIdir\fR\ [\fIbranch\fR]
 Functions as
 .B clone
-but create a local bare repository instead of a clone.
+but creates a local bare repository instead of a clone.
 .I branch
 defaults to
 .B init.defaultBranch\fR,
@@ -108,11 +116,12 @@ from the config repository.
 .SH FILES
 .TP
 .I <common-git-dir>/hooks/post-checkout
-The block required by
 .B cubicle
-is appended to the file and marked with
-.I CUBICLE-MANAGED-HOOK
-to preserve existing hooks. Updates rewrite only that block.
+manages one block in this file, between
+.I "# CUBICLE-MANAGED-HOOK BEGIN"
+and
+.I "# CUBICLE-MANAGED-HOOK END"
+markers. Any pre-existing hook content is preserved.
 .TP
 .I <common-git-dir>/info/exclude
 Ignore rules for the linked items.

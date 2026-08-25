@@ -49,9 +49,9 @@ Options:
 
 Layout:
   project/
-  +-- share/        top-level contents of this directory linked into every worktree
+  +-- .bare/        bare repository (common git dir)
+  +-- share/        shared config; top-level entries link into every worktree
   +-- <branch>/     initial worktree (name = default branch)
-  +-- worktree-*/   each worktree contains links to top-level contents of share/
 EOF
 }
 
