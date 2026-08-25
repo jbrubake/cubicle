@@ -672,8 +672,8 @@ cmd_link() {
 cmd_worktree() {
     [ $# -ge 1 ] ||
         die "usage: cubicle worktree [<git worktree add options>] <path>"
-    git worktree add "$@" || return $?
     require_repo
+    git worktree add "$@" || return $?
     # relink quietly: the user just watched git's own output
     QUIET=yes _link_all_worktrees
     if [ "$_LINK_FAILED" -gt 0 ]; then
