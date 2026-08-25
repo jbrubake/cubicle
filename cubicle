@@ -238,20 +238,15 @@ for_each_share_item() {
 # usage: classify NAME WT CFG
 classify() {
     local name=$1 wt=$2 cfg=$3
-    local path="$wt/$name" item="$cfg/$name"
+    local path="$wt/$name" item="$cfg/$name" cur des
     if [ ! -e "$item" ]; then
         printf 'nocfg\n'
-        return
-    fi
-    if [ -L "$path" ]; then
-        if [ -e "$path" ]; then
-            local cur des
-            cur=$(readlink "$path")
-            des=$(rel_target "$wt" "$item")
-            if [ "$cur" = "$des" ]; then printf 'linked\n'; else printf 'other\n'; fi
-        else
-            printf 'dangling\n'
-        fi
+    elif [ -L "$path" ] && [ ! -e "$path" ]; then
+        printf 'dangling\n'
+    elif [ -L "$path" ]; then
+        cur=$(readlink "$path")
+        des=$(rel_target "$wt" "$item")
+        if [ "$cur" = "$des" ]; then printf 'linked\n'; else printf 'other\n'; fi
     elif [ -e "$path" ]; then
         printf 'realfile\n'
     else
