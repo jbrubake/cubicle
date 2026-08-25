@@ -461,9 +461,6 @@ cmd_clone() {
     fi
     [ -n "$branch" ] || branch=$(default_branch)
 
-    info "creating first worktree: $dir/$branch (branch '$branch')"
-    git -C "$dir/.bare" worktree add "$dir/$branch" "$branch"
-
     _finish_project "$dir" "$branch" "$agents" "$claude" "$repo"
 }
 
@@ -657,9 +654,6 @@ cmd_init() {
     commit=$(git -C "$dir/.bare" commit-tree "$tree" -m root)
     git -C "$dir/.bare" update-ref "refs/heads/$branch" "$commit"
 
-    info "creating first worktree: $dir/$branch"
-    git -C "$dir/.bare" worktree add "$dir/$branch" "$branch"
-
     _finish_project "$dir" "$branch" "$agents" "$claude" "$repo"
 }
 
@@ -725,6 +719,9 @@ cmd_worktree() {
 _finish_project() {
     local dir=$1 branch=$2 agents=$3 claude=$4 repo=$5
     local cfg top
+
+    info "creating first worktree: $dir/$branch (branch '$branch')"
+    git -C "$dir/.bare" worktree add "$dir/$branch" "$branch"
 
     mkdir -p "$dir/share"
     if [ "$repo" = yes ]; then
