@@ -261,28 +261,24 @@ classify() {
 link_item() {
     local name=$1 wt=$2 cfg=$3
     local path="$wt/$name" item="$cfg/$name" state des cur
-    if [ ! -e "$item" ]; then
-        warn "no $name in $cfg (nothing to link)"
-        return 0
-    fi
-    state=$(classify "$name" "$wt" "$cfg")
-    case "$state" in
+
+    case $(classify "$name" "$wt" "$cfg") in
+        nocfg)
+            warn "no $name in $cfg (nothing to link)"
+            ;;
         linked)
             ok "$name: already linked"
-            return 0
             ;;
         other)
             cur=$(readlink "$path")
             info "$name: symlink points elsewhere ($cur); left untouched"
-            return 0
             ;;
         realfile)
             warn "$name: real file present, skipped (cubicle never overwrites)"
-            return 0
             ;;
         dangling)
             des=$(rel_target "$wt" "$item")
-            rm -f "$path" || return 1
+            rm -f "$path"
             ln -s "$des" "$path" || {
                 warn "failed to relink $name in $wt"
                 return 1
@@ -298,7 +294,6 @@ link_item() {
             ok "$name -> $des"
             ;;
     esac
-    return 0
 }
 
 # link_into() {{{3
