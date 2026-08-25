@@ -24,7 +24,6 @@ set -eu
 VERSION=1.0.0
 MARKER=CUBICLE-MANAGED-HOOK-v1
 COMMON_DIR=
-HOOKTAIL=
 QUIET=no
 
 # Documentation {{{1
@@ -350,21 +349,12 @@ install_hook() {
     mkdir -p "$hooks"
     if [ ! -e "$hook" ]; then
         _write_hook_block >"$hook"
-        chmod +x "$hook"
         ok "post-checkout hook created ($hook)"
     elif grep -q "$MARKER" "$hook" 2>/dev/null; then
-        # Owned by cubicle: refresh only the managed block, keep the user's tail
-        HOOKTAIL=$(mktemp "${TMPDIR:-/tmp}/cubicle.hook.XXXXXXXX") ||
-            die "failed to create temporary file"
-        awk 'p { print } /^exit 0$/ && !p { p = 1 }' "$hook" >"$HOOKTAIL"
-        {
-            _write_hook_block
-            cat "$HOOKTAIL"
-        } >"$hook.new"
+        # Owned by cubicle: rewrite managed block, keep lines after its 'exit 0'
+        _write_hook_block >"$hook.new"
+        awk 'p; /^exit 0$/{p=1}' "$hook" >>"$hook.new"
         mv "$hook.new" "$hook"
-        rm -f "$HOOKTAIL"
-        HOOKTAIL=
-        chmod +x "$hook"
         ok "post-checkout hook updated ($hook)"
     elif grep -q ">>> cubicle >>>" "$hook" 2>/dev/null; then
         ok "post-checkout hook already calls cubicle ($hook)"
@@ -382,7 +372,7 @@ EOF
         ok "cubicle block appended to existing post-checkout hook ($hook)"
         warn "your hook content was kept untouched; cubicle manages only its appended block"
     fi
-    [ -x "$hook" ] || chmod +x "$hook"
+    chmod +x "$hook"
 }
 
 # _add_exclude() {{{3
@@ -644,15 +634,6 @@ _check_orphans() {
     done
 }
 
-# cleanup() {{{3
-#
-# Remove temporary files, if any (registered as EXIT trap)
-cleanup() {
-    if [ -n "$HOOKTAIL" ]; then
-        rm -f "$HOOKTAIL"
-    fi
-}
-trap cleanup EXIT
 
 # cmd_init() {{{3
 #
