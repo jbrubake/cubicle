@@ -430,10 +430,12 @@ install_excludes() {
 
 # Stub generators {{{2
 #
+# _stub_*() each writes one config artifact into DIR. Called only when the
+# matching option was requested; share/ is freshly created, so no existence
+# checks.
+#
 # _stub_agents_md() {{{3
 #
-# Each writes one config artifact into DIR. Called only when the matching
-# option was requested; share/ is freshly created, so no existence checks.
 _stub_agents_md() { # DIR
     cat >"$1/AGENTS.md" <<'EOF'
 # AGENTS.md
