@@ -404,20 +404,6 @@ _stub_claude() { # DIR
 
 # Commands {{{2
 #
-# _make_project_dir() {{{3
-#
-# Create DIR and print its absolute path. Die if DIR is non-empty
-# usage: _make_project_dir DIR
-_make_project_dir() {
-    local dir
-    dir=$(abspath "$1")
-    if [ -e "$dir" ] && [ -n "$(ls -A "$dir" 2>/dev/null)" ]; then
-        die "'$dir' already exists and is not empty"
-    fi
-    mkdir -p "$dir"
-    printf '%s\n' "$dir"
-}
-
 # cmd_clone() {{{3
 #
 # Bootstrap a project from a remote: bare clone, first worktree, share/, wiring
@@ -715,6 +701,20 @@ cmd_worktree() {
     if [ "$_LINK_FAILED" -gt 0 ]; then
         warn "created worktree but $_LINK_FAILED link operation(s) failed (run 'cubicle link')"
     fi
+}
+
+# _make_project_dir() {{{3
+#
+# Create DIR and print its absolute path. Die if DIR is non-empty
+# usage: _make_project_dir DIR
+_make_project_dir() {
+    local dir
+    dir=$(abspath "$1")
+    if [ -e "$dir" ] && [ -n "$(ls -A "$dir" 2>/dev/null)" ]; then
+        die "'$dir' already exists and is not empty"
+    fi
+    mkdir -p "$dir"
+    printf '%s\n' "$dir"
 }
 
 # _finish_project() {{{3
