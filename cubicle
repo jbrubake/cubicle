@@ -793,7 +793,7 @@ _finish_project() {
     cfg=$(resolve_cfg "$top")
     install_hook
     install_excludes "$cfg"
-    link_into "$top" "$cfg"
+    link_into "$top" "$cfg" || warn "some links failed (run 'cubicle link')"
     ok "linked current worktree ($top)"
     echo
     info "config : $cfg"
