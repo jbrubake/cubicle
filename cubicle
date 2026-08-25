@@ -467,7 +467,7 @@ cmd_check() {
     [ $# -eq 0 ] || die "usage: cubicle check"
     require_repo
     local ISSUES=0
-    local top hook exc n wts
+    local top hook exc wt wts
 
     wts=$(worktree_paths)
     top=$(top_of .)
@@ -527,7 +527,7 @@ EOF
     for_each_share_item "$cfg" _check_check_exclude "$exc"
 
     hdr "worktrees"
-    n=0
+    [ -n "$wts" ] || info "none found"
     while IFS= read -r wt; do
         [ -n "$wt" ] || continue
         for_each_share_item "$cfg" _check_check_link "$wt" "$cfg"
@@ -535,9 +535,6 @@ EOF
     done <<EOF
 $wts
 EOF
-    if [ "$n" -eq 0 ]; then
-        info "none found"
-    fi
     hdr "result"
     if [ "$ISSUES" -eq 0 ]; then
         ok "no issues found"
