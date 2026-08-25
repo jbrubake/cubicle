@@ -467,7 +467,6 @@ cmd_check() {
     [ $# -eq 0 ] || die "usage: cubicle check"
     require_repo
     local ISSUES=0
-    local CHECK_EXC='' WT='' CFG=''
     local top hook exc n wt
     top=$(top_of .)
 
@@ -526,18 +525,14 @@ EOF
 
     hdr "excludes"
     exc=$COMMON_DIR/info/exclude
-    CHECK_EXC=$exc
-    for_each_share_item "$cfg" _check_check_exclude
+    for_each_share_item "$cfg" _check_check_exclude "$exc"
 
     hdr "worktrees"
-    CFG=$cfg
     n=0
     while IFS= read -r wt; do
         [ -n "$wt" ] || continue
-        n=$((n + 1))
-        WT=$wt
-        for_each_share_item "$cfg" _check_check_link
-        _check_orphans
+        for_each_share_item "$cfg" _check_check_link "$wt" "$cfg"
+        _check_orphans "$wt" "$cfg"
     done <<EOF
 $wts
 EOF
@@ -562,11 +557,11 @@ _check_list_item() {
 # _check_check_exclude() {{{4
 #
 _check_check_exclude() {
-    local pat="/$1"
-    if grep -qxF "$pat" "$CHECK_EXC" 2>/dev/null; then
+    local pat="/$1" exc=$2
+    if grep -qxF "$pat" "$exc" 2>/dev/null; then
         ok "ignored  : $pat"
     else
-        warn "not excluded: $pat (append it to $CHECK_EXC)"
+        warn "not excluded: $pat (append it to $exc)"
         ISSUES=$((ISSUES + 1))
     fi
 }
@@ -574,36 +569,38 @@ _check_check_exclude() {
 # _check_check_link() {{{4
 #
 _check_check_link() {
-    local state
-    state=$(classify "$1" "$WT" "$CFG")
+    local state wt=$2 cfg=$3
+    state=$(classify "$1" "$wt" "$cfg")
     case "$state" in
         linked|nocfg) ;;
-        realfile) info "note     : $WT real $1 (skipped by design)" ;;
-        dangling) warn "DANGLING : $WT/$1"; ISSUES=$((ISSUES + 1)) ;;
-        other)    info "note     : $WT/$1 points elsewhere ($(readlink "$WT/$1"))" ;;
-        missing)  warn "UNLINKED : $WT/$1 (run 'cubicle link')"; ISSUES=$((ISSUES + 1)) ;;
+        realfile) info "note     : $wt real $1 (skipped by design)" ;;
+        dangling) warn "DANGLING : $wt/$1"; ISSUES=$((ISSUES + 1)) ;;
+        other)    info "note     : $wt/$1 points elsewhere ($(readlink "$wt/$1"))" ;;
+        missing)  warn "UNLINKED : $wt/$1 (run 'cubicle link')"; ISSUES=$((ISSUES + 1)) ;;
     esac
 }
 
 # _check_orphans() {{{4
 #
-# Flag dangling symlinks at the worktree root whose target matches what
+# Flag dangling symlinks at the worktree WT whose target matches what
 # cubicle writes for CFG/NAME: managed links whose config item has since been
-# removed from the config repo. Uses WT/CFG globals set by the caller
+# removed from the config repo
+#
+# Usage:
+#   _check_orphans WT CFG
 _check_orphans() {
-    local entry name want
-    for entry in "$WT"/* "$WT"/.[!.]* "$WT"/..?*; do
+    local wt=$1 cfg=$2 entry name want
+    for entry in "$wt"/* "$wt"/.[!.]* "$wt"/..?*; do
         [ -L "$entry" ] || continue
         if [ -e "$entry" ]; then continue; fi
         name=${entry##*/}
-        want=$(rel_target "$WT" "$CFG/$name")
+        want=$(rel_target "$wt" "$cfg/$name")
         if [ "$(readlink "$entry")" = "$want" ]; then
             warn "DANGLING : $entry (config item removed)"
             ISSUES=$((ISSUES + 1))
         fi
     done
 }
-
 
 # cmd_init() {{{3
 #
