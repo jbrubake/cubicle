@@ -676,9 +676,8 @@ cmd_worktree() {
     git worktree add "$@" || return $?
     # relink quietly: the user just watched git's own output
     QUIET=yes _link_all_worktrees
-    if [ "$_LINK_FAILED" -gt 0 ]; then
+    [ "$_LINK_FAILED" -eq 0 ] ||
         warn "created worktree but $_LINK_FAILED link operation(s) failed (run 'cubicle link')"
-    fi
 }
 
 # _make_project_dir() {{{3
