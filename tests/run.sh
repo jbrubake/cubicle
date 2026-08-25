@@ -181,7 +181,8 @@ unit_hook_block_shape() {
         echo "hook must resolve cubicle via PATH, not a hardcoded path"
         exit 1
     fi
-    assert_contains "$block" 'exit 0'
+    assert_contains "$block" '(created by cubicle)'
+    assert_contains "$block" 'ends here'
 }
 
 unit_default_branch_config_fallback() {
@@ -556,6 +557,32 @@ reg_hook_update_preserves_foreign_tail() {
     assert_contains "$content" CUBICLE-MANAGED-HOOK-v1
 }
 
+reg_hook_append_then_refresh() {
+    source_lib
+    common=$(make_sandbox)/common
+    mkdir -p "$common/hooks"
+    hook=$common/hooks/post-checkout
+    {
+        echo '#!/bin/sh'
+        echo 'echo my own setup'
+        echo 'exit 137'
+    } >"$hook"
+    chmod +x "$hook"
+    # consumed by install_hook from the sourced library
+    # shellcheck disable=SC2034
+    COMMON_DIR=$common
+    install_hook
+    assert_eq "$(grep -c CUBICLE-MANAGED-HOOK-v1 "$hook")" 2
+    assert_contains "$(cat "$hook")" 'my own setup'
+    printf '%s\n' '# user addition' >>"$hook"
+    install_hook
+    assert_eq "$(grep -c CUBICLE-MANAGED-HOOK-v1 "$hook")" 2
+    assert_eq "$(grep -c 'command -v cubicle' "$hook")" 1
+    assert_contains "$(cat "$hook")" 'my own setup'
+    assert_contains "$(cat "$hook")" '# user addition'
+    assert_eq "$(head -n1 "$hook")" '#!/bin/sh'
+}
+
 reg_excludes_only_once() {
     # consumed by make_project -> init via $INIT_OPTS
     # shellcheck disable=SC2034
@@ -628,6 +655,7 @@ t 'e2e: default branch from config'       e2e_default_branch_config
 t 'e2e: share --repo option'            e2e_share_repo_option
 t 'reg: link from sibling worktree'     reg_link_from_sibling_worktree
 t 'reg: hook update keeps foreign tail' reg_hook_update_preserves_foreign_tail
+t 'reg: append then refresh keeps all'  reg_hook_append_then_refresh
 t 'reg: excludes written once'          reg_excludes_only_once
 t 'reg: link works from nested subdir'  reg_link_works_from_nested_subdir
 t 'reg: __SOURCED__ loads w/o dispatch' reg_sentinel_loads_without_dispatch

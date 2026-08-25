@@ -323,53 +323,39 @@ worktree_paths() {
 #
 # _write_hook_block() {{{3
 #
-# Print the managed post-checkout hook block. The block ends with an
-# 'exit 0' line; anything appended after it by the user is preserved on
-# updates
-# usage: _write_hook_block
+# Print the managed post-checkout hook block
 _write_hook_block() {
     cat <<EOF
-#!/bin/sh
 # $MARKER (created by cubicle)
 command -v cubicle >/dev/null 2>&1 || exit 0
 cubicle -q link >/dev/null 2>&1 || :
-exit 0
+# $MARKER ends here
 EOF
 }
 
 # install_hook() {{{3
 #
-# Create or update the common post-checkout hook so it invokes cubicle on every
-# checkout. Preserves any foreign hook content: when the hook is already owned
-# by cubicle (marker present), only the managed block is refreshed; lines
-# appended after the block's 'exit 0' survive untouched
+# Create or update the post-checkout hook so it invokes cubicle on every
+# checkout. Pre-existing hook content is preserved
 install_hook() {
     local hooks=$COMMON_DIR/hooks
     local hook=$hooks/post-checkout
     mkdir -p "$hooks"
     if [ ! -e "$hook" ]; then
-        _write_hook_block >"$hook"
+        printf '#!/bin/sh\n' >"$hook"
+        _write_hook_block    >"$hook"
         ok "post-checkout hook created ($hook)"
     elif grep -q "$MARKER" "$hook" 2>/dev/null; then
-        # Owned by cubicle: rewrite managed block, keep lines after its 'exit 0'
-        _write_hook_block >"$hook.new"
-        awk 'p; /^exit 0$/{p=1}' "$hook" >>"$hook.new"
+        # Update a marked cubicle hook, keeping any non-cubicle content
+        awk -v m="$MARKER" 'index($0, m) { exit } { print }' "$hook" >"$hook.new"
+        _write_hook_block >>"$hook.new"
+        awk -v m="$MARKER" 'index($0, m) && ++c == 2 { f = 1; next } f' "$hook" >>"$hook.new"
         mv "$hook.new" "$hook"
         ok "post-checkout hook updated ($hook)"
-    elif grep -q ">>> cubicle >>>" "$hook" 2>/dev/null; then
-        ok "post-checkout hook already calls cubicle ($hook)"
     else
-        cat >>"$hook" <<'EOF'
-
-# >>> cubicle >>> (appended by cubicle; this block is managed, rest is yours)
-if command -v cubicle >/dev/null 2>&1; then
-    cubicle -q link >/dev/null 2>&1 || :
-elif [ -x "$HOME/script/cubicle" ]; then
-    "$HOME/script/cubicle" -q link >/dev/null 2>&1 || :
-fi
-# <<< cubicle <<<
-EOF
-        ok "cubicle block appended to existing post-checkout hook ($hook)"
+        printf '#!/bin/sh\n' >>"$hook"
+        _write_hook_block    >>"$hook"
+        ok "managed block appended to existing post-checkout hook ($hook)"
         warn "your hook content was kept untouched; cubicle manages only its appended block"
     fi
     chmod +x "$hook"
@@ -534,14 +520,6 @@ EOF
                 ok "cubicle on PATH"
             else
                 warn "cubicle not on PATH -- hook cannot work"
-                ISSUES=$((ISSUES + 1))
-            fi
-        elif grep -q ">>> cubicle >>>" "$hook" 2>/dev/null; then
-            ok "calls cubicle via appended block (foreign hook content preserved)"
-            if command -v cubicle >/dev/null 2>&1 || [ -x "${HOME}/script/cubicle" ]; then
-                ok "cubicle reachable from hook"
-            else
-                warn "cubicle not on PATH and ~/script/cubicle missing — hook block cannot work"
                 ISSUES=$((ISSUES + 1))
             fi
         else
