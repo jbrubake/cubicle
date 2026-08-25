@@ -79,6 +79,10 @@ assert_no_file() {
     [ ! -e "$1" ] || { echo "assert_no_file: exists $1"; exit 1; }
 }
 
+assert_dir() {
+    [ -d "$1" ] || { echo "assert_dir: not a directory: $1"; exit 1; }
+}
+
 assert_symlink_to() { # LINK EXPECTED_TARGET
     [ -L "$1" ] || { echo "assert_symlink_to: not a symlink: $1"; exit 1; }
     assert_eq "$(readlink "$1")" "$2" "target of $1"

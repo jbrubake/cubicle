@@ -448,76 +448,21 @@ install_excludes() {
 
 # Stub generators {{{2
 #
-# _stub_*() each writes one config artifact into DIR. Called only when the
-# matching option was requested; share/ is freshly created, so no existence
-# checks.
-#
-# _stub_agents_md() {{{3
-#
-_stub_agents_md() { # DIR
-    cat >"$1/AGENTS.md" <<'EOF'
-# AGENTS.md
-
-Guidance for AI coding agents working in this repository.
-Keep this file current as project conventions evolve.
-
-## Overview
-
-<!-- What this project does, key entry points -->
-
-## Commands
-
-<!-- Build / test / lint commands agents should run, e.g.: make test -->
-
-## Conventions
-
-<!-- Style, structure, and workflow rules agents must follow -->
-EOF
-    ok "template created: $1/AGENTS.md"
-}
-
-# _stub_claude_md() {{{3
-#
-_stub_claude_md() { # DIR
-    cat >"$1/CLAUDE.md" <<'EOF'
-# CLAUDE.md
-
-Guidance for Claude Code working in this repository.
-Keep this file current as project conventions evolve.
-
-## Overview
-
-<!-- What this project does, key entry points -->
-
-## Commands
-
-<!-- Build / test / lint commands Claude should run, e.g.: make test -->
-
-## Conventions
-
-<!-- Style, structure, and workflow rules Claude must follow -->
-EOF
-    ok "template created: $1/CLAUDE.md"
-}
-
-# _stub_opencode() {{{3
-#
+# _stub_*(): Generate stub configs for different AI agents
 _stub_opencode() { # DIR
     mkdir -p "$1/.opencode"
-    cat >"$1/.opencode/opencode.json" <<'EOF'
-{
-  "$schema": "https://opencode.ai/config.json"
-}
-EOF
-    ok "stub created: $1/.opencode/opencode.json"
+    ok "stub created: $1/.opencode/"
+
+    touch "$1/AGENTS.md"
+    ok "stub created: $1/AGENTS.md"
 }
 
-# _stub_claude_settings() {{{3
-#
-_stub_claude_settings() { # DIR
+_stub_claude() { # DIR
     mkdir -p "$1/.claude"
-    printf '{}\n' >"$1/.claude/settings.json"
-    ok "stub created: $1/.claude/settings.json"
+    ok "stub created: $1/.claude/"
+
+    touch "$1/CLAUDE.md"
+    ok "stub created: $1/CLAUDE.md"
 }
 
 # _share_create() {{{3
@@ -535,14 +480,8 @@ _share_create() {
         git -c "init.defaultBranch=$(default_branch)" -C "$dir" init -q
         info "repository created in $dir (no commits; history is yours)"
     fi
-    if [ "$agents" = yes ]; then
-        _stub_agents_md "$dir"
-        _stub_opencode "$dir"
-    fi
-    if [ "$claude" = yes ]; then
-        _stub_claude_md "$dir"
-        _stub_claude_settings "$dir"
-    fi
+    [ "$agents" = yes ] && _stub_opencode "$dir"
+    [ "$claude" = yes ] && _stub_claude "$dir"
     ok "config directory ready: $dir"
 }
 

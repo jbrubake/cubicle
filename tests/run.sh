@@ -415,8 +415,7 @@ e2e_claude_stubs() {
     INIT_OPTS=--claude
     proj=$(make_project "$(make_sandbox)/proj" trunk) || return 1
     assert_file "$proj/share/CLAUDE.md"
-    assert_file "$proj/share/.claude/settings.json"
-    assert_eq "$(cat "$proj/share/.claude/settings.json")" '{}'
+    assert_dir "$proj/share/.claude"
     # default: no repository, and cubicle never commits in share/
     assert_no_file "$proj/share/.git"
     assert_symlink_to "$proj/trunk/CLAUDE.md" ../share/CLAUDE.md
@@ -489,9 +488,11 @@ e2e_init_unknown_option_rejected() {
 e2e_both_stub_bundles() {
     INIT_OPTS='--opencode --claude'
     proj=$(make_project "$(make_sandbox)/proj" trunk) || return 1
-    for f in AGENTS.md .opencode/opencode.json CLAUDE.md .claude/settings.json; do
+    for f in AGENTS.md CLAUDE.md; do
         assert_file "$proj/share/$f"
     done
+    assert_dir "$proj/share/.opencode"
+    assert_dir "$proj/share/.claude"
     assert_symlink_to "$proj/trunk/.opencode" ../share/.opencode
 }
 
