@@ -5,6 +5,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-08-25
+
 ### Added
 - Project bootstrap via `clone` and `init`: a `.bare` repository, a standalone
   `share/` directory beside it, and a first worktree named after the default
@@ -19,3 +21,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--opencode` / `--claude` stub bundles creating empty placeholders
   (`AGENTS.md` + `.opencode/`, `CLAUDE.md` + `.claude/`); `--repo` turns
   `share/` into its own git repository that cubicle never commits to
+
+[unreleased]: https://github.com/jbrubake/cubicle/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/jbrubake/cubicle/releases/tag/v1.0.0
