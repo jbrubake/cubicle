@@ -383,7 +383,7 @@ e2e_help_and_version_flags() {
     assert_exit 1 "$CUBICLE_BIN" help
     assert_exit 1 "$CUBICLE_BIN" version
     assert_exit 1 "$CUBICLE_BIN" frobnicate
-    assert_fails "$CUBICLE_BIN" clone --help   # treated as a URL, not a flag
+    assert_fails "$CUBICLE_BIN" clone --help   # leading dashes never start a URL: rejected by the option parser
     # zero-argument commands reject stray arguments
     assert_exit 1 "$CUBICLE_BIN" check unexpected-arg
     assert_contains "$ERR" 'usage: cubicle check'
@@ -482,6 +482,22 @@ e2e_both_stub_bundles() {
     assert_symlink_to "$proj/trunk/.opencode" ../share/.opencode
 }
 
+e2e_init_rejects_nonempty_dir() {
+    sb=$(make_sandbox)
+    mkdir -p "$sb/proj"
+    printf keep >"$sb/proj/keep.txt"
+    assert_exit 1 "$CUBICLE_BIN" init "$sb/proj"
+    assert_contains "$ERR" 'already exists and is not empty'
+    assert_file "$sb/proj/keep.txt"
+}
+
+e2e_clone_derives_dirname() {
+    sb=$(make_sandbox)
+    up=$(make_upstream "$sb" devel) || return 1
+    (cd "$sb" && assert_rc0 "$CUBICLE_BIN" clone --opencode "$up") || return 1
+    assert_symlink_to "$sb/upstream/devel/AGENTS.md" ../share/AGENTS.md
+}
+
 e2e_clone_repo_option() {
     sb=$(make_sandbox)
     up=$(make_upstream "$sb" devel) || return 1
@@ -568,6 +584,30 @@ reg_hook_append_then_refresh() {
     assert_eq "$(head -n1 "$hook")" '#!/bin/sh'
 }
 
+reg_link_failure_aggregates() {
+    INIT_OPTS=--opencode
+    proj=$(make_project "$(make_sandbox)/proj" trunk) || return 1
+    cd "$proj/trunk" || return 1
+    assert_rc0 "$CUBICLE_BIN" worktree ../feat -b feat || return 1
+
+    # an unwritable worktree makes ln fail inside it; the batch must count
+    # the failure, report it, and keep going. Remove the item first so the
+    # relink actually has something to write (a correct link is left alone)
+    rm ../feat/AGENTS.md
+    chmod 555 ../feat
+    assert_exit 1 "$CUBICLE_BIN" link
+    assert_contains "$ERR" 'link operation(s) failed'
+    assert_contains "$ERR" 'worktrees checked: 2'
+
+    # the worktree wrapper surfaces the same failure as a warning, rc stays 0
+    assert_rc0 "$CUBICLE_BIN" worktree ../w4 -b w4
+    assert_contains "$ERR" 'created worktree but'
+
+    chmod 755 ../feat
+    assert_rc0 "$CUBICLE_BIN" link
+    assert_symlink_to "$proj/feat/AGENTS.md" ../share/AGENTS.md
+}
+
 reg_excludes_only_once() {
     # consumed by make_project -> init via $INIT_OPTS
     # shellcheck disable=SC2034
@@ -632,6 +672,8 @@ t 'e2e: claude stub bundle'             e2e_claude_stubs
 t 'e2e: bare link = all, DIR = scoped' e2e_link_scope
 t 'unit: default_branch config/fallback' unit_default_branch_config_fallback
 t 'e2e: both stub bundles together'      e2e_both_stub_bundles
+t 'e2e: init rejects nonempty dir'       e2e_init_rejects_nonempty_dir
+t 'e2e: clone derives dirname from URL'   e2e_clone_derives_dirname
 t 'e2e: clone --repo option'             e2e_clone_repo_option
 t 'e2e: hook heals sibling worktrees'    e2e_hook_heals_siblings
 t 'e2e: default branch falls back to main' e2e_default_branch_fallback
@@ -640,6 +682,7 @@ t 'e2e: share --repo option'            e2e_share_repo_option
 t 'reg: link from sibling worktree'     reg_link_from_sibling_worktree
 t 'reg: hook update keeps foreign tail' reg_hook_update_preserves_foreign_tail
 t 'reg: append then refresh keeps all'  reg_hook_append_then_refresh
+t 'reg: link failure aggregates'         reg_link_failure_aggregates
 t 'reg: excludes written once'          reg_excludes_only_once
 t 'reg: link works from nested subdir'  reg_link_works_from_nested_subdir
 t 'reg: __SOURCED__ loads w/o dispatch' reg_sentinel_loads_without_dispatch
