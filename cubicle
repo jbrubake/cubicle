@@ -79,10 +79,10 @@ EOF
 #
 # If QUIET == yes, ok and info are no-ops
 #
-die()  {                       printf '[err]  %s\n' "$*"; exit 1; } >&2
+die()  {                       printf '[err ] %s\n' "$*"; exit 1; } >&2
 warn() {                       printf '[warn] %s\n' "$*" >&2; }
-info() { [ "$QUIET" = yes ] || printf '[..]   %s\n' "$*" >&2; }
-ok()   { [ "$QUIET" = yes ] || printf '[ok]   %s\n' "$*" >&2; }
+info() { [ "$QUIET" = yes ] || printf '[info] %s\n' "$*" >&2; }
+ok()   { [ "$QUIET" = yes ] || printf '[ok  ] %s\n' "$*" >&2; }
 
 # Print a section header line
 # usage: hdr TITLE...

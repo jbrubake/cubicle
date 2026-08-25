@@ -208,7 +208,7 @@ unit_print_layer_quiet() {
     # shellcheck disable=SC2034
     QUIET=no
     msg=$( { ok v1; } 2>&1 )
-    assert_eq "$msg" '[ok]   v1'
+    assert_eq "$msg" '[ok  ] v1'
 }
 
 # --- e2e -------------------------------------------------------------------
