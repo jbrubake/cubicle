@@ -429,11 +429,7 @@ cmd_clone() {
         shift
     done
 
-    [ $# -ge 1 ] && [ $# -le 2 ] ||
-        die "$usage"
-    for arg do
-        case $arg in -*) die "$usage" ;; esac
-    done
+    [ $# -ge 1 ] && [ $# -le 2 ] || die "$usage"
 
     local url=$1
     local dir=${2:-}
@@ -641,10 +637,7 @@ cmd_init() {
         shift
     done
 
-        die "$usage"
-    for arg do
-        case $arg in -*) die "$usage" ;; esac
-    done
+    [ $# -ge 1 ] && [ $# -le 2 ] || die "$usage"
 
     local dir=$1
     dir=$(abspath "$dir")

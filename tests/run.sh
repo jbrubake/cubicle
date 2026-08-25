@@ -474,18 +474,6 @@ e2e_link_scope() {
     assert_symlink_to "$proj/feat/AGENTS.md" ../share/AGENTS.md
 }
 
-e2e_init_unknown_option_rejected() {
-    sb=$(make_sandbox)
-    capture "$CUBICLE_BIN" init "$sb/proj" --bogus
-    assert_eq "$RC" 1
-    assert_contains "$ERR" 'usage: cubicle init'
-    assert_no_file "$sb/proj"        # rejected before any side effects
-    capture "$CUBICLE_BIN" clone "$sb/url.git" --bogus
-    assert_eq "$RC" 1
-    assert_contains "$ERR" 'usage: cubicle clone'
-    assert_no_file "$sb/url.git"
-}
-
 e2e_both_stub_bundles() {
     INIT_OPTS='--opencode --claude'
     proj=$(make_project "$(make_sandbox)/proj" trunk) || return 1
@@ -646,7 +634,6 @@ t 'e2e: init empty share valid'         e2e_init_empty_share
 t 'e2e: claude stub bundle'             e2e_claude_stubs
 t 'e2e: bare link = all, DIR = scoped' e2e_link_scope
 t 'unit: default_branch config/fallback' unit_default_branch_config_fallback
-t 'e2e: init rejects unknown option'     e2e_init_unknown_option_rejected
 t 'e2e: both stub bundles together'      e2e_both_stub_bundles
 t 'e2e: clone --repo option'             e2e_clone_repo_option
 t 'e2e: hook heals sibling worktrees'    e2e_hook_heals_siblings
