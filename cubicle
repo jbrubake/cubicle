@@ -641,40 +641,28 @@ cmd_init() {
 
 # cmd_link() {{{3
 #
-# Link config into the worktree containing DIR after parsing flags
-# usage: cmd_link [--quiet|-q] [DIR]
-#     DIR defaults to .
+# Link config into the worktree containing DIR or all worktrees if DIR is empty
+# usage: cmd_link [DIR]
 cmd_link() {
-    local dir=
-    while [ $# -gt 0 ]; do
-        case "$1" in
-            -*) die "usage: cubicle link [DIR] (omit DIR for all worktrees)" ;;
-            *) dir=$1 ;;
-        esac
-        shift
-    done
+    local dir=${1:-}
 
     require_repo
 
-    # If no DIR arg, update links for all worktrees
     if [ -z "$dir" ]; then
         _link_all_worktrees
         info "worktrees checked: $_LINK_TOTAL"
-        if [ "$_LINK_FAILED" -gt 0 ]; then
-            warn "$_LINK_FAILED link operation(s) failed"
-            exit 1
-        fi
+        [ "$_LINK_FAILED" -gt 0 ] &&
+            die "$_LINK_FAILED link operation(s) failed"
         ok "all worktrees processed"
-        return 0
+    else
+        [ -d "$dir" ] || die "not a directory: $dir"
+
+        local top cfg
+        top=$(top_of "$dir")
+        cfg=$(resolve_cfg "$top")
+        install_excludes "$cfg"
+        link_into "$top" "$cfg"
     fi
-
-    [ -d "$dir" ] || die "not a directory: $dir"
-
-    local top cfg
-    top=$(top_of "$dir")
-    cfg=$(resolve_cfg "$top")
-    install_excludes "$cfg"
-    link_into "$top" "$cfg"
 }
 
 # cmd_worktree() {{{3

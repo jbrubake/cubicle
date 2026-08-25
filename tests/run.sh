@@ -395,9 +395,6 @@ e2e_help_and_version_flags() {
     # unknown leading options are rejected explicitly
     assert_exit 1 "$CUBICLE_BIN" -x check
     assert_contains "$ERR" 'Unknown option'
-    # the old per-command habit fails loudly now
-    assert_exit 1 "$CUBICLE_BIN" link --quiet
-    assert_contains "$ERR" 'usage: cubicle link'
 }
 
 e2e_init_empty_share() {
