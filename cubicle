@@ -377,7 +377,7 @@ _add_exclude() {
 # usage: install_excludes CFG
 install_excludes() {
     local cfg=$1 exc=$COMMON_DIR/info/exclude
-    mkdir -p "$COMMON_DIR/info"
+    mkdir -p "${exc%/*}"
     touch "$exc"
     for_each_share_item "$cfg" _add_exclude "$exc"
     ok "ignore rules ensured ($exc)"
