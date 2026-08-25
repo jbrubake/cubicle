@@ -343,6 +343,24 @@ save_worktrees() {
 
 # Wiring {{{2
 #
+# _wire() {{{3
+#
+# Wire the current worktree: install hook/excludes, link items
+_wire() {
+    require_repo
+    local top cfg
+    top=$(top_of .)
+    cfg=$(resolve_cfg "$top")
+
+    install_hook
+    install_excludes "$cfg"
+    link_into "$top" "$cfg"
+    ok "linked current worktree ($top)"
+    echo
+    info "config : $cfg"
+    info "hook   : fires on every checkout / worktree add (incl. opencode TUI)"
+}
+
 # _write_hook_block() {{{3
 #
 # Print the managed post-checkout hook block. The block ends with an
@@ -458,18 +476,6 @@ EOF
     ok "template created: $1/AGENTS.md"
 }
 
-# _stub_opencode() {{{3
-#
-_stub_opencode() { # DIR
-    mkdir -p "$1/.opencode"
-    cat >"$1/.opencode/opencode.json" <<'EOF'
-{
-  "$schema": "https://opencode.ai/config.json"
-}
-EOF
-    ok "stub created: $1/.opencode/opencode.json"
-}
-
 # _stub_claude_md() {{{3
 #
 _stub_claude_md() { # DIR
@@ -492,6 +498,18 @@ Keep this file current as project conventions evolve.
 <!-- Style, structure, and workflow rules Claude must follow -->
 EOF
     ok "template created: $1/CLAUDE.md"
+}
+
+# _stub_opencode() {{{3
+#
+_stub_opencode() { # DIR
+    mkdir -p "$1/.opencode"
+    cat >"$1/.opencode/opencode.json" <<'EOF'
+{
+  "$schema": "https://opencode.ai/config.json"
+}
+EOF
+    ok "stub created: $1/.opencode/opencode.json"
 }
 
 # _stub_claude_settings() {{{3
@@ -526,39 +544,6 @@ _share_create() {
         _stub_claude_settings "$dir"
     fi
     ok "config directory ready: $dir"
-}
-
-# _wire() {{{3
-#
-# Wire the current worktree: install hook/excludes, link items
-_wire() {
-    require_repo
-    local top cfg
-    top=$(top_of .)
-    cfg=$(resolve_cfg "$top")
-
-    install_hook
-    install_excludes "$cfg"
-    link_into "$top" "$cfg"
-    ok "linked current worktree ($top)"
-    echo
-    info "config : $cfg"
-    info "hook   : fires on every checkout / worktree add (incl. opencode TUI)"
-}
-
-# _finish_project() {{{3
-#
-# Finish project bootstrap: share/, wiring and summary messages
-# usage: _finish_project DIR BRANCH AGENTS CLAUDE REPO
-_finish_project() {
-    local dir=$1 branch=$2 agents=$3 claude=$4 repo=$5
-    _share_create "$dir/share" "$agents" "$claude" "$repo"
-    (cd "$dir/$branch" && _wire)
-    ok   "project ready: $dir"
-    info "layout : .bare/ + share/ + $branch/"
-    info "next   : put files in $dir/share/, they appear in every worktree"
-    info "then   : \$ cubicle link # to create the symlinks"
-    info "daily  : cd $dir/$branch && cubicle worktree ../feature -b feature"
 }
 
 # Commands {{{2
@@ -893,6 +878,21 @@ cmd_worktree() {
     if [ "$_LINK_FAILED" -gt 0 ]; then
         warn "created worktree but $_LINK_FAILED link operation(s) failed (run 'cubicle link')"
     fi
+}
+
+# _finish_project() {{{3
+#
+# Finish project bootstrap: share/, wiring and summary messages
+# usage: _finish_project DIR BRANCH AGENTS CLAUDE REPO
+_finish_project() {
+    local dir=$1 branch=$2 agents=$3 claude=$4 repo=$5
+    _share_create "$dir/share" "$agents" "$claude" "$repo"
+    (cd "$dir/$branch" && _wire)
+    ok   "project ready: $dir"
+    info "layout : .bare/ + share/ + $branch/"
+    info "next   : put files in $dir/share/, they appear in every worktree"
+    info "then   : \$ cubicle link # to create the symlinks"
+    info "daily  : cd $dir/$branch && cubicle worktree ../feature -b feature"
 }
 
 # _link_all_worktrees() {{{3
