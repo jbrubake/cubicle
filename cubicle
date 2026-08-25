@@ -740,8 +740,7 @@ _finish_project() {
 # Sets _LINK_TOTAL and _LINK_FAILED (worktrees with failed links)
 _link_all_worktrees() {
     local cfg wt wts
-    _LINK_TOTAL=0
-    _LINK_FAILED=0
+    _LINK_TOTAL=0 _LINK_FAILED=0
     cfg=$(resolve_cfg "$(top_of .)")
     install_excludes "$cfg"
 
@@ -749,16 +748,14 @@ _link_all_worktrees() {
     [ -n "$wts" ] || die "no worktrees found"
 
     while IFS= read -r wt; do
-        [ -n "$wt" ] || continue
         _LINK_TOTAL=$((_LINK_TOTAL + 1))
         info "==> $wt"
         if path_inside "$wt" "$cfg"; then
             warn "skipping $wt (inside config repo)"
             continue
         fi
-        if ! link_into "$wt" "$cfg"; then
+        link_into "$wt" "$cfg" ||
             _LINK_FAILED=$((_LINK_FAILED + 1))
-        fi
     done <<EOF
 $wts
 EOF
