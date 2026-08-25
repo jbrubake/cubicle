@@ -206,10 +206,10 @@ resolve_cfg() {
 
 # Wiring {{{2
 #
-# _write_hook_block() {{{3
+# write_hook_block() {{{3
 #
 # Print the managed post-checkout hook block
-_write_hook_block() {
+write_hook_block() {
     cat <<EOF
 # $MARKER BEGIN
 command -v cubicle >/dev/null 2>&1 || exit 0
@@ -228,29 +228,29 @@ install_hook() {
     mkdir -p "$hooks"
     if [ ! -e "$hook" ]; then
         printf '#!/bin/sh\n' >"$hook"
-        _write_hook_block    >"$hook"
+        write_hook_block     >"$hook"
         ok "post-checkout hook created ($hook)"
     elif grep -q "$MARKER" "$hook" 2>/dev/null; then
         # Update a marked cubicle hook, keeping any non-cubicle content
         awk -v m="$MARKER" 'index($0, m) { exit } { print }' "$hook" >"$hook.new"
-        _write_hook_block >>"$hook.new"
+        write_hook_block >>"$hook.new"
         awk -v m="$MARKER" 'index($0, m) && ++c == 2 { f = 1; next } f' "$hook" >>"$hook.new"
         mv "$hook.new" "$hook"
         ok "post-checkout hook updated ($hook)"
     else
         printf '#!/bin/sh\n' >>"$hook"
-        _write_hook_block    >>"$hook"
+        write_hook_block     >>"$hook"
         ok "managed block appended to existing post-checkout hook ($hook)"
         warn "your hook content was kept untouched; cubicle manages only its appended block"
     fi
     chmod +x "$hook"
 }
 
-# _add_exclude() {{{3
+# add_exclude() {{{3
 #
 # Append the anchored ignore rule for NAME to exclude FILE unless present
-# usage: _add_exclude NAME FILE
-_add_exclude() {
+# usage: add_exclude NAME FILE
+add_exclude() {
     local pat="/$1"
     grep -qxF "$pat" "$2" 2>/dev/null || printf '%s\n' "$pat" >>"$2"
 }
@@ -264,14 +264,14 @@ install_excludes() {
     local cfg=$1 exc=$COMMON_DIR/info/exclude
     mkdir -p "${exc%/*}"
     touch "$exc"
-    for_each_share_item "$cfg" _add_exclude "$exc"
+    for_each_share_item "$cfg" add_exclude "$exc"
     ok "ignore rules ensured ($exc)"
 }
 
 # Stub generators {{{3
 #
 # _stub_*(): Generate stub configs for different AI agents
-_stub_opencode() { # DIR
+stub_opencode() {
     mkdir -p "$1/.opencode"
     ok "stub created: $1/.opencode/"
 
@@ -279,7 +279,7 @@ _stub_opencode() { # DIR
     ok "stub created: $1/AGENTS.md"
 }
 
-_stub_claude() { # DIR
+stub_claude() {
     mkdir -p "$1/.claude"
     ok "stub created: $1/.claude/"
 
@@ -312,12 +312,12 @@ classify() {
     fi
 }
 
-# _finish_project() {{{3
+# finish_project() {{{3
 #
 # Finish project setup: create share/ with option contents and wire the first
 # worktree
-# usage: _finish_project DIR BRANCH AGENTS CLAUDE REPO
-_finish_project() {
+# usage: finish_project DIR BRANCH AGENTS CLAUDE REPO
+finish_project() {
     local dir=$1 branch=$2 agents=$3 claude=$4 repo=$5
     local cfg top
 
@@ -329,8 +329,8 @@ _finish_project() {
         git -c "init.defaultBranch=$(default_branch)" -C "$dir/share" init -q
         info "repository created in $dir/share (no commits; history is yours)"
     fi
-    [ "$agents" = yes ] && _stub_opencode "$dir/share"
-    [ "$claude" = yes ] && _stub_claude "$dir/share"
+    [ "$agents" = yes ] && stub_opencode "$dir/share"
+    [ "$claude" = yes ] && stub_claude "$dir/share"
     ok "config directory ready: $dir/share"
 
     # wire the first worktree; COMMON_DIR feeds install_hook/install_excludes
@@ -375,11 +375,11 @@ for_each_share_item() {
     return $rc
 }
 
-# _link_all_worktrees() {{{3
+# link_all_worktrees() {{{3
 #
 # Link every worktree of the current project
 # Sets _LINK_TOTAL and _LINK_FAILED (worktrees with failed links)
-_link_all_worktrees() {
+link_all_worktrees() {
     local cfg wt wts
     _LINK_TOTAL=0 _LINK_FAILED=0
     cfg=$(resolve_cfg "$(top_of .)")
@@ -457,11 +457,11 @@ link_into() {
     for_each_share_item "$cfg" link_item "$wt" "$cfg" || return $?
 }
 
-# _make_project_dir() {{{3
+# make_project_dir() {{{3
 #
 # Create DIR and print its absolute path. Die if DIR is non-empty
-# usage: _make_project_dir DIR
-_make_project_dir() {
+# usage: make_project_dir DIR
+make_project_dir() {
     local dir
     dir=$(abspath "$1")
     if [ -e "$dir" ] && [ -n "$(ls -A "$dir" 2>/dev/null)" ]; then
@@ -523,7 +523,7 @@ cmd_clone() {
             die "cannot derive a directory name from '$url'. Pass one explicitly"
     fi
 
-    dir=$(_make_project_dir "$dir")
+    dir=$(make_project_dir "$dir")
 
     info "cloning (bare): $url -> $dir/.bare"
     git clone --bare "$url" "$dir/.bare"
@@ -538,7 +538,7 @@ cmd_clone() {
     fi
     [ -n "$branch" ] || branch=$(default_branch)
 
-    _finish_project "$dir" "$branch" "$agents" "$claude" "$repo"
+    finish_project "$dir" "$branch" "$agents" "$claude" "$repo"
 }
 
 # cmd_check() {{{3
@@ -560,7 +560,7 @@ cmd_check() {
     hdr "config"
     cfg=$(resolve_cfg "$top")
     ok "config   : $cfg"
-    for_each_share_item "$cfg" _check_list_item
+    for_each_share_item "$cfg" check_list_item
     [ "$ITEMS" -eq 0 ] && warn "share/ has no linkable content yet"
     while IFS= read -r wt; do
         [ -n "$wt" ] || continue
@@ -601,14 +601,14 @@ EOF
 
     hdr "excludes"
     exc=$COMMON_DIR/info/exclude
-    for_each_share_item "$cfg" _check_check_exclude "$exc"
+    for_each_share_item "$cfg" check_excluded "$exc"
 
     hdr "worktrees"
     [ -n "$wts" ] || info "none found"
     while IFS= read -r wt; do
         [ -n "$wt" ] || continue
-        for_each_share_item "$cfg" _check_check_link "$wt" "$cfg"
-        _check_orphans "$wt" "$cfg"
+        for_each_share_item "$cfg" check_linked "$wt" "$cfg"
+        check_orphans "$wt" "$cfg"
     done <<EOF
 $wts
 EOF
@@ -621,16 +621,16 @@ EOF
     fi
 }
 
-# _check_list_item() {{{4
+# check_list_item() {{{4
 #
-_check_list_item() {
+check_list_item() {
     ITEMS=$((ITEMS + 1))
     ok "has      : $1"
 }
 
-# _check_check_exclude() {{{4
+# check_excluded() {{{4
 #
-_check_check_exclude() {
+check_excluded() {
     local pat="/$1" exc=$2
     if grep -qxF "$pat" "$exc" 2>/dev/null; then
         ok "ignored  : $pat"
@@ -640,9 +640,9 @@ _check_check_exclude() {
     fi
 }
 
-# _check_check_link() {{{4
+# check_linked() {{{4
 #
-_check_check_link() {
+check_linked() {
     local state wt=$2 cfg=$3
     state=$(classify "$1" "$wt" "$cfg")
     case "$state" in
@@ -654,15 +654,15 @@ _check_check_link() {
     esac
 }
 
-# _check_orphans() {{{4
+# check_orphans() {{{4
 #
 # Flag dangling symlinks at the worktree WT whose target matches what
 # cubicle writes for CFG/NAME: managed links whose config item has since been
 # removed from the config repo
 #
 # Usage:
-#   _check_orphans WT CFG
-_check_orphans() {
+#   check_orphans WT CFG
+check_orphans() {
     local wt=$1 cfg=$2 entry name want
     for entry in "$wt"/* "$wt"/.[!.]* "$wt"/..?*; do
         [ -L "$entry" ] || continue
@@ -704,7 +704,7 @@ cmd_init() {
     [ $# -ge 1 ] && [ $# -le 2 ] || die "$usage"
 
     local dir=$1 branch=${2:-$(default_branch)}
-    dir=$(_make_project_dir "$dir")
+    dir=$(make_project_dir "$dir")
 
     local branch=${2:-$(default_branch)}
     info "creating bare repository: $dir/.bare (branch '$branch')"
@@ -717,7 +717,7 @@ cmd_init() {
     commit=$(git -C "$dir/.bare" commit-tree "$tree" -m root)
     git -C "$dir/.bare" update-ref "refs/heads/$branch" "$commit"
 
-    _finish_project "$dir" "$branch" "$agents" "$claude" "$repo"
+    finish_project "$dir" "$branch" "$agents" "$claude" "$repo"
 }
 
 # cmd_link() {{{3
@@ -730,7 +730,7 @@ cmd_link() {
     require_repo
 
     if [ -z "$dir" ]; then
-        _link_all_worktrees
+        link_all_worktrees
         info "worktrees checked: $_LINK_TOTAL"
         [ "$_LINK_FAILED" -gt 0 ] &&
             die "$_LINK_FAILED link operation(s) failed"
@@ -756,7 +756,7 @@ cmd_worktree() {
     require_repo
     git worktree add "$@" || return $?
     # relink quietly: the user just watched git's own output
-    QUIET=yes _link_all_worktrees
+    QUIET=yes link_all_worktrees
     [ "$_LINK_FAILED" -eq 0 ] ||
         warn "created worktree but $_LINK_FAILED link operation(s) failed (run 'cubicle link')"
 }

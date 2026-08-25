@@ -174,7 +174,7 @@ unit_classify_states() {
 
 unit_hook_block_shape() {
     source_lib
-    block=$(_write_hook_block)
+    block=$(write_hook_block)
     assert_contains "$block" CUBICLE-MANAGED-HOOK
     assert_contains "$block" 'command -v cubicle'
     if printf '%s\n' "$block" | grep -q 'CUBICLE_BIN='; then
@@ -526,7 +526,7 @@ reg_hook_update_preserves_foreign_tail() {
     mkdir -p "$common/hooks"
     hook=$common/hooks/post-checkout
     {
-        _write_hook_block
+        write_hook_block
         echo '# my own stuff'
         echo 'echo foreign >> marker-file'
     } >"$hook"
