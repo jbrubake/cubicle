@@ -510,14 +510,7 @@ _share_create() {
     [ $# -eq 4 ] || die "internal error: _share_create takes exactly four arguments"
     local dir=$1 agents=$2 claude=$3 repo=$4
     dir=$(abspath "$dir")
-    local parent ptop=
-    parent=$(dirname "$dir")
-    ptop=$(git -C "$parent" rev-parse --show-toplevel 2>/dev/null || true)
     mkdir -p "$dir"
-    if [ -n "$ptop" ] && path_inside "$dir" "$ptop"; then
-        warn "'$dir' was created INSIDE repo $ptop"
-        warn "the project VCS will see it; keep share/ beside the worktrees instead"
-    fi
     if [ "$repo" = yes ]; then
         git -c "init.defaultBranch=$(default_branch)" -C "$dir" init -q
         info "repository created in $dir (no commits; history is yours)"
