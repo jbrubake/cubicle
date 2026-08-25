@@ -404,6 +404,20 @@ _stub_claude() { # DIR
 
 # Commands {{{2
 #
+# _make_project_dir() {{{3
+#
+# Create DIR and print its absolute path. Die if DIR is non-empty
+# usage: _make_project_dir DIR
+_make_project_dir() {
+    local dir
+    dir=$(abspath "$1")
+    if [ -e "$dir" ] && [ -n "$(ls -A "$dir" 2>/dev/null)" ]; then
+        die "'$dir' already exists and is not empty"
+    fi
+    mkdir -p "$dir"
+    printf '%s\n' "$dir"
+}
+
 # cmd_clone() {{{3
 #
 # Bootstrap a project from a remote: bare clone, first worktree, share/, wiring
@@ -442,11 +456,7 @@ cmd_clone() {
             die "cannot derive a directory name from '$url'. Pass one explicitly"
     fi
 
-    dir=$(abspath "$dir")
-    if [ -e "$dir" ] && [ -n "$(ls -A "$dir" 2>/dev/null)" ]; then
-        die "'$dir' already exists and is not empty"
-    fi
-    mkdir -p "$dir"
+    dir=$(_make_project_dir "$dir")
 
     info "cloning (bare): $url -> $dir/.bare"
     git clone --bare "$url" "$dir/.bare"
@@ -636,12 +646,8 @@ cmd_init() {
 
     [ $# -ge 1 ] && [ $# -le 2 ] || die "$usage"
 
-    local dir=$1
-    dir=$(abspath "$dir")
-    if [ -e "$dir" ] && [ -n "$(ls -A "$dir" 2>/dev/null)" ]; then
-        die "'$dir' already exists and is not empty"
-    fi
-    mkdir -p "$dir"
+    local dir=$1 branch=${2:-$(default_branch)}
+    dir=$(_make_project_dir "$dir")
 
     local branch=${2:-$(default_branch)}
     info "creating bare repository: $dir/.bare (branch '$branch')"
